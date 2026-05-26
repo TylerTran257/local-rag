@@ -1,0 +1,17 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: document-upload-app
+    ports:
+      - "8000:8000"
+    environment:
+      GENERATION_BASE_URL: http://host.docker.internal:8080/v1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./app.db:/app/app.db
+      - ./uploads:/app/uploads
+      - ./qdrant_data:/app/qdrant_data
+    restart: unless-stopped
