@@ -1,0 +1,82 @@
+{
+  "corpus_documents": [
+    "tests/fixtures/python_rag_intro.txt",
+    "tests/fixtures/vector_database_notes.txt",
+    "tests/fixtures/laravel_queues.txt"
+  ],
+  "examples": [
+    {
+      "id": "rag-chunk-overlap",
+      "query": "what does chunk overlap help with in rag",
+      "expected_documents": [
+        "tests/fixtures/python_rag_intro.txt"
+      ],
+      "expected_answer_facts": [
+        ["chunk overlap"],
+        ["chunk boundary"]
+      ],
+      "require_citation": true
+    },
+    {
+      "id": "rag-embeddings-vs-keyword-search",
+      "query": "why are embeddings useful in retrieval augmented generation",
+      "expected_documents": [
+        "tests/fixtures/python_rag_intro.txt"
+      ],
+      "expected_answer_facts": [
+        ["semantic meaning"],
+        ["similar ideas"]
+      ],
+      "require_citation": true
+    },
+    {
+      "id": "vector-payload-metadata",
+      "query": "what metadata is stored with each vector chunk",
+      "expected_documents": [
+        "tests/fixtures/vector_database_notes.txt"
+      ],
+      "expected_answer_facts": [
+        ["document identifier"],
+        ["original filename"],
+        ["chunk index"]
+      ],
+      "require_citation": true
+    },
+    {
+      "id": "vector-cosine-distance",
+      "query": "why is cosine similarity used for semantic search in qdrant",
+      "expected_documents": [
+        "tests/fixtures/vector_database_notes.txt"
+      ],
+      "expected_answer_facts": [
+        ["cosine similarity"],
+        ["vector space"]
+      ],
+      "require_citation": true
+    },
+    {
+      "id": "queue-idempotency",
+      "query": "why does idempotency matter for queued jobs",
+      "expected_documents": [
+        "tests/fixtures/laravel_queues.txt"
+      ],
+      "expected_answer_facts": [
+        ["processed more than once"],
+        ["duplicate business effects"]
+      ],
+      "require_citation": true
+    },
+    {
+      "id": "queue-retry-failures",
+      "query": "what happens when a laravel job keeps failing after retries",
+      "expected_documents": [
+        "tests/fixtures/laravel_queues.txt"
+      ],
+      "expected_answer_facts": [
+        ["allowed retries"],
+        ["failed jobs table"]
+      ],
+      "require_citation": true
+    }
+  ]
+}

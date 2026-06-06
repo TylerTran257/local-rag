@@ -52,11 +52,63 @@ class DocumentService:
         vector_store_service: VectorStoreService,
         text_extractor: TextExtractor,
         lexical_search_service: LexicalSearchService,
+        session_factory=None,
+        upload_dir: Path | None = None,
     ) -> None:
         self.embedding_service = embedding_service
         self.vector_store_service = vector_store_service
         self.text_extractor = text_extractor
         self.lexical_search_service = lexical_search_service
+        self.session_factory = session_factory or SessionLocal
+        self.upload_dir = upload_dir or settings.upload_dir
+
+    def _validate_content_type(self, content_type: str) -> None:
+        if content_type not in ALLOWED_CONTENT_TYPES:
+            raise HTTPException(status_code=400, detail=f"{content_type} is not allowed")
+
+    def _content_type_for_path(self, file_path: Path) -> str:
+        suffix = file_path.suffix.lower()
+        if suffix == ".txt":
+            return "text/plain"
+
+        if suffix == ".pdf":
+            return "application/pdf"
+
+        raise ValueError(f"Unsupported file type: {suffix}")
+
+    def _persist_document_contents(
+        self,
+        original_filename: str,
+        contents: bytes,
+    ) -> DocumentData:
+        if len(contents) > settings.max_file_size:
+            raise HTTPException(
+                status_code=400, detail="Document is too large. Max size is 1 MB"
+            )
+
+        self.upload_dir.mkdir(parents=True, exist_ok=True)
+
+        document_id = str(uuid4())
+        original_suffix = Path(original_filename).suffix.lower()
+        saved_filename = f"{document_id}{original_suffix}"
+        saved_path = self.upload_dir / saved_filename
+        saved_path.write_bytes(contents)
+
+        with self.session_factory() as session:
+            document = Document(
+                id=document_id,
+                original_filename=original_filename,
+                stored_filename=saved_filename,
+                status="uploaded",
+                size_bytes=len(contents),
+                extracted_text=None,
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+            )
+            session.add(document)
+            session.commit()
+            session.refresh(document)
+            return self.serialize_document(document)
 
     def _validate_query(self, query: str, limit: int) -> None:
         if not query.strip():
@@ -113,40 +165,15 @@ class DocumentService:
         if not file.filename:
             raise HTTPException(status_code=400, detail="Documentname is required")
 
-        if file.content_type not in ALLOWED_CONTENT_TYPES:
-            raise HTTPException(
-                status_code=400, detail=f"{file.content_type} is not allowed"
-            )
+        self._validate_content_type(file.content_type or "")
 
         contents = await file.read()
 
-        if len(contents) > settings.max_file_size:
-            raise HTTPException(
-                status_code=400, detail="Document is too large. Max size is 1 MB"
-            )
-        settings.upload_dir.mkdir(exist_ok=True)
+        result = self._persist_document_contents(file.filename or "unknown", contents)
 
-        document_id = str(uuid4())
-        original_suffix = Path(file.filename).suffix.lower()
-        saved_filename = f"{document_id}{original_suffix}"
-        saved_path = settings.upload_dir / saved_filename
-        saved_path.write_bytes(contents)
-
-        with SessionLocal() as session:
-            document = Document(
-                id=document_id,
-                original_filename=file.filename or "unknown",
-                stored_filename=saved_filename,
-                status="uploaded",
-                size_bytes=len(contents),
-                extracted_text=None,
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
-            )
-            session.add(document)
-            session.commit()
-            session.refresh(document)
-            result = self.serialize_document(document)
+        document_id = result.get("document_id")
+        if document_id is None:
+            raise RuntimeError("Document creation did not return a document_id")
 
         logger.info(
             "event=document_created document_id=%s filename=%s size_bytes=%s duration_ms=%s",
@@ -157,8 +184,32 @@ class DocumentService:
         )
         return result
 
+    def create_document_from_path(
+        self,
+        file_path: Path,
+        original_filename: str | None = None,
+    ) -> DocumentData:
+        started_at = perf_counter()
+        self._content_type_for_path(file_path)
+        contents = file_path.read_bytes()
+        resolved_filename = original_filename or file_path.name
+        result = self._persist_document_contents(resolved_filename, contents)
+
+        document_id = result.get("document_id")
+        if document_id is None:
+            raise RuntimeError("Document creation did not return a document_id")
+
+        logger.info(
+            "event=document_created_from_path document_id=%s filename=%s size_bytes=%s duration_ms=%s",
+            document_id,
+            resolved_filename,
+            len(contents),
+            round((perf_counter() - started_at) * 1000, 2),
+        )
+        return result
+
     def get_document(self, document_id: str) -> DocumentData:
-        with SessionLocal() as session:
+        with self.session_factory() as session:
             document = session.get(Document, document_id)
             if document is None:
                 raise HTTPException(status_code=404, detail="Document not found")
@@ -167,7 +218,7 @@ class DocumentService:
     def search_document(
         self, document_id: str, query: str, limit: int
     ) -> dict[str, str | int | list[str]]:
-        with SessionLocal() as session:
+        with self.session_factory() as session:
             document = session.get(Document, document_id)
 
             if document is None:
@@ -212,7 +263,7 @@ class DocumentService:
 
     def extract_text(self, document_id: str) -> DocumentData:
         started_at = perf_counter()
-        with SessionLocal() as session:
+        with self.session_factory() as session:
             document = session.get(Document, document_id)
             if document is None:
                 raise HTTPException(status_code=404, detail="Document not found")
@@ -224,7 +275,7 @@ class DocumentService:
                 raise HTTPException(status_code=400, detail="Document state error")
 
             stored_filename = document.stored_filename
-            saved_path = settings.upload_dir / str(stored_filename)
+            saved_path = self.upload_dir / str(stored_filename)
 
             document.extracted_text = self.text_extractor.extract(saved_path)
             document.status = "text_extracted"
@@ -244,7 +295,7 @@ class DocumentService:
 
     def chunk_document(self, document_id: str) -> dict[str, str | int]:
         started_at = perf_counter()
-        with SessionLocal() as session:
+        with self.session_factory() as session:
             document = session.get(Document, document_id)
             if document is None:
                 raise HTTPException(status_code=404, detail="Document not found")
@@ -306,7 +357,7 @@ class DocumentService:
 
     def embed_document(self, document_id: str) -> dict[str, str | int | list[str]]:
         started_at = perf_counter()
-        with SessionLocal() as session:
+        with self.session_factory() as session:
             document = session.get(Document, document_id)
 
             if document is None:
@@ -469,7 +520,7 @@ class DocumentService:
         return citations
 
     def create_job(self, document_id: str) -> JobData:
-        with SessionLocal() as session:
+        with self.session_factory() as session:
             document = session.get(Document, document_id)
             if document is None:
                 raise HTTPException(status_code=404, detail="Document not found")
@@ -490,7 +541,7 @@ class DocumentService:
             return self.serialize_job(job)
 
     def get_job(self, job_id: str) -> JobData:
-        with SessionLocal() as session:
+        with self.session_factory() as session:
             job = session.get(Job, job_id)
             if job is None:
                 raise HTTPException(status_code=404, detail="Job not found")
@@ -498,7 +549,7 @@ class DocumentService:
             return self.serialize_job(job)
 
     def mark_job_running(self, job_id: str) -> JobData:
-        with SessionLocal() as session:
+        with self.session_factory() as session:
             job = session.get(Job, job_id)
             if job is None:
                 raise HTTPException(status_code=404, detail="Job not found")
@@ -511,7 +562,7 @@ class DocumentService:
             return self.serialize_job(job)
 
     def mark_job_completed(self, job_id: str) -> JobData:
-        with SessionLocal() as session:
+        with self.session_factory() as session:
             job = session.get(Job, job_id)
             if job is None:
                 raise HTTPException(status_code=404, detail="Job not found")
@@ -525,7 +576,7 @@ class DocumentService:
             return self.serialize_job(job)
 
     def mark_job_failed(self, job_id: str, message: str) -> JobData:
-        with SessionLocal() as session:
+        with self.session_factory() as session:
             job = session.get(Job, job_id)
             if job is None:
                 raise HTTPException(status_code=404, detail="Job not found")

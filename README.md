@@ -278,6 +278,29 @@ Current coverage includes:
 - websocket no-context path
 - websocket generation-error path
 
+## Golden Eval Set
+
+Run the Golden eval set with:
+
+```bash
+python -m app.evals.golden_eval
+```
+
+Useful options:
+
+- `--eval-set /path/to/eval.json`
+- `--example-id rag-chunk-overlap`
+- `--keep-artifacts`
+- `--with-answer-eval`
+
+Default behavior:
+
+- rebuilds an isolated eval workspace for each run
+- ingests the checked-in Eval corpus through the real pipeline
+- evaluates the blocking Retrieval gate against dense retrieval
+- reports diagnostic `MRR`
+- runs Informational answer eval only when `--with-answer-eval` is requested
+
 ## Docker
 
 Build the image:

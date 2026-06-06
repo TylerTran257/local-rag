@@ -8,16 +8,16 @@ from app.settings import settings
 
 
 class VectorStoreService:
-    def __init__(self) -> None:
-        self.collection_name = settings.qdrant_collection_name
-        self.client = QdrantClient(path=settings.qdrant_path)
+    def __init__(self, qdrant_path=None, collection_name=None) -> None:
+        self.collection_name = collection_name or settings.qdrant_collection_name
+        self.client = QdrantClient(path=qdrant_path or settings.qdrant_path)
         self.ensure_collection()
 
     def ensure_collection(self) -> None:
         try:
             self.client.get_collection(self.collection_name)
             return
-        except NotImplementedError:
+        except (NotImplementedError, UnexpectedResponse, ValueError):
             pass
 
         self.client.create_collection(

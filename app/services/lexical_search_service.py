@@ -12,11 +12,12 @@ FTS_TABLE_NAME = "document_chunks_fts"
 
 
 class LexicalSearchService:
-    def __init__(self) -> None:
+    def __init__(self, session_factory=None) -> None:
+        self.session_factory = session_factory or SessionLocal
         self._ensure_table()
 
     def _ensure_table(self) -> None:
-        with SessionLocal() as session:
+        with self.session_factory() as session:
             session.execute(text(f"""
                 CREATE VIRTUAL TABLE IF NOT EXISTS {FTS_TABLE_NAME}
                 USING fts5(
@@ -35,7 +36,7 @@ class LexicalSearchService:
         return " ".join(tokens)
 
     def delete_document_chunks(self, document_id: str) -> None:
-        with SessionLocal() as session:
+        with self.session_factory() as session:
             session.execute(
                 text(f"""
                 DELETE FROM {FTS_TABLE_NAME}
@@ -70,7 +71,7 @@ class LexicalSearchService:
             for chunk in chunks
         ]
 
-        with SessionLocal() as session:
+        with self.session_factory() as session:
             session.execute(
                 text(f"""
                     INSERT INTO {FTS_TABLE_NAME} (
@@ -111,7 +112,7 @@ class LexicalSearchService:
             )
             return []
 
-        with SessionLocal() as session:
+        with self.session_factory() as session:
             result = session.execute(
                 text(f"""
                 SELECT
