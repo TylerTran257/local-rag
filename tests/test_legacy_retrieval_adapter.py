@@ -200,7 +200,7 @@ def test_returns_multiple_chunks_with_sentinel_defaults(adapter, stub_document_s
 
 
 # Test: LEGACY_METADATA_DEFAULTED warning emission
-def test_emits_legacy_metadata_defaulted_warning_for_each_chunk(adapter, stub_document_service, effective_request):
+def test_emits_single_legacy_metadata_defaulted_warning_with_chunk_count(adapter, stub_document_service, effective_request):
     stub_document_service.dense_results = [
         {
             "document_id": "doc-1",
@@ -220,13 +220,13 @@ def test_emits_legacy_metadata_defaulted_warning_for_each_chunk(adapter, stub_do
 
     result = adapter.retrieve(effective_request)
 
-    # Should have 2 warnings, one per chunk
-    assert len(result.warnings) == 2
-    for warning in result.warnings:
-        assert warning.code == WarningCode.LEGACY_METADATA_DEFAULTED
-        assert warning.severity == WarningSeverity.MEDIUM
-        assert warning.source == "LegacyDocumentRetrievalAdapter"
-        assert "sentinel" in warning.message.lower() or "default" in warning.message.lower()
+    assert len(result.warnings) == 1
+    warning = result.warnings[0]
+    assert warning.code == WarningCode.LEGACY_METADATA_DEFAULTED
+    assert warning.severity == WarningSeverity.MEDIUM
+    assert warning.source == "LegacyDocumentRetrievalAdapter"
+    assert "2" in warning.message
+    assert warning.details["chunk_count"] == 2
 
 
 # Test: Exception translation

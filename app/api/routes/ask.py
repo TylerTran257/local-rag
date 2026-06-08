@@ -1,10 +1,10 @@
 from fastapi import APIRouter, HTTPException, Request
 
+from app.api.retrieval_helpers import build_default_scope, map_retrieval_error_to_http
 from app.api.schemas import AskRequest
 from app.services.generation_service import GenerationServiceError
 from app.retrieval import (
     RetrieveRequest,
-    RetrievalScope,
     RetrievalMode,
     InvalidRetrievalRequestError,
     UnsupportedRetrievalModeError,
@@ -16,39 +16,20 @@ from app.retrieval import (
 router = APIRouter()
 
 
-def _map_retrieval_error_to_http(error) -> HTTPException:
-    """Map domain errors to HTTP status codes."""
-    if isinstance(error, (InvalidRetrievalRequestError, UnsupportedRetrievalModeError)):
-        return HTTPException(status_code=400, detail=str(error))
-    elif isinstance(error, NoIndexedCorpusError):
-        return HTTPException(status_code=409, detail=str(error))
-    elif isinstance(error, (RetrievalExecutionError, RetrievedChunkValidationError)):
-        return HTTPException(status_code=500, detail=str(error))
-    else:
-        return HTTPException(status_code=500, detail="Internal server error")
-
-
 @router.post("/ask")
 def ask(request: Request, askRequest: AskRequest) -> dict:
-    # Construct RetrieveRequest with sentinel scope
-    scope = RetrievalScope(
-        service_name="local-rag",
-        tenant_id="default",
-        collections=["documents"],
-        filters={}
-    )
     retrieve_request = RetrieveRequest(
         query=askRequest.query,
         retrieval_mode=RetrievalMode.DENSE,
         limit=askRequest.limit,
-        scope=scope
+        scope=build_default_scope()
     )
 
     try:
         result = request.app.state.retrieve_use_case.execute(retrieve_request)
     except (InvalidRetrievalRequestError, UnsupportedRetrievalModeError,
             NoIndexedCorpusError, RetrievalExecutionError, RetrievedChunkValidationError) as e:
-        raise _map_retrieval_error_to_http(e)
+        raise map_retrieval_error_to_http(e)
 
     if len(result.chunks) == 0:
         return {

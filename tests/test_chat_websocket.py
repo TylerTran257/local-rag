@@ -100,7 +100,7 @@ def test_chat_websocket_returns_done_when_no_context_found(
     }
 
     assert fake_document_service.calls == [
-        ("retrieve_context", "what is retrieval augmented generation", 3)
+        ("retrieve_context_dense", "what is retrieval augmented generation", 3)
     ]
 
     assert fake_generation_service.calls == []

@@ -2,11 +2,17 @@ import logging
 from time import perf_counter
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
+from app.api.retrieval_helpers import build_default_scope
 from app.api.schemas import AskRequest
 from app.services.generation_service import GenerationServiceError
+from app.retrieval import (
+    RetrieveRequest,
+    RetrievalMode,
+    RetrievalError,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -45,17 +51,16 @@ async def chat_socket(websocket: WebSocket):
             )
 
             try:
-                contexts = websocket.app.state.document_service.retrieve_context(
-                    ask_request.query,
-                    ask_request.limit,
+                retrieve_request = RetrieveRequest(
+                    query=ask_request.query,
+                    retrieval_mode=RetrievalMode.DENSE,
+                    limit=ask_request.limit,
+                    scope=build_default_scope(),
                 )
+                result = websocket.app.state.retrieve_use_case.execute(retrieve_request)
 
-            except HTTPException as exc:
-                message = (
-                    exc.detail
-                    if isinstance(exc.detail, str)
-                    else "Failed to retrieve document context"
-                )
+            except RetrievalError as exc:
+                message = str(exc)
                 await websocket.send_json({"type": "error", "message": message})
                 logger.error(
                     "event=chat_retrieval_failed chat_id=%s error_message=%s",
@@ -72,6 +77,17 @@ async def chat_socket(websocket: WebSocket):
                     chat_id,
                 )
                 continue
+
+            contexts = [
+                {
+                    "document_id": chunk.metadata["document_id"],
+                    "original_filename": chunk.metadata["source_label"],
+                    "chunk_index": chunk.metadata["chunk_index"],
+                    "score": chunk.score,
+                    "text": chunk.content,
+                }
+                for chunk in result.chunks
+            ]
 
             if not contexts:
                 await websocket.send_json(
@@ -111,7 +127,17 @@ async def chat_socket(websocket: WebSocket):
                 )
                 continue
 
-            citations = websocket.app.state.document_service.serialize_citations(contexts)
+            citations = [
+                {
+                    "id": i,
+                    "document_id": ctx["document_id"],
+                    "original_filename": ctx["original_filename"],
+                    "chunk_index": ctx["chunk_index"],
+                    "score": ctx["score"],
+                    "text": ctx["text"],
+                }
+                for i, ctx in enumerate(contexts, start=1)
+            ]
             await websocket.send_json(
                 {
                     "type": "done",

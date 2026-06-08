@@ -72,28 +72,23 @@ class LegacyDocumentRetrievalAdapter:
                     details={"mode": str(request.retrieval_mode)}
                 )
 
-            # Normalize results to RetrievedChunk with sentinel defaults
-            chunks = []
+            chunks = [self._normalize_to_retrieved_chunk(d) for d in results]
+
             warnings = []
-
-            for result_dict in results:
-                chunk = self._normalize_to_retrieved_chunk(result_dict)
-                chunks.append(chunk)
-
-                # Emit warning for legacy metadata
-                warning = RetrievalWarning(
+            if chunks:
+                warnings.append(RetrievalWarning(
                     code=WarningCode.LEGACY_METADATA_DEFAULTED,
                     severity=WarningSeverity.MEDIUM,
                     source="LegacyDocumentRetrievalAdapter",
-                    message="Using sentinel defaults for metadata fields",
+                    message=f"Applied sentinel defaults to {len(chunks)} chunks",
                     details={
+                        "chunk_count": len(chunks),
                         "service_name": self.SENTINEL_SERVICE_NAME,
                         "tenant_id": self.SENTINEL_TENANT_ID,
                         "collection": self.SENTINEL_COLLECTION,
                         "source_type": self.SENTINEL_SOURCE_TYPE,
                     }
-                )
-                warnings.append(warning)
+                ))
 
             return RetrievalGatewayResult(
                 chunks=chunks,

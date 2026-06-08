@@ -1,6 +1,6 @@
 """Trace sink implementations for the Retrieval Core."""
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.retrieval.types import RetrievalTrace
@@ -49,7 +49,7 @@ class SystemClock:
 
     def now(self) -> datetime:
         """Return current datetime."""
-        return datetime.now()
+        return datetime.now(timezone.utc)
 
 
 class UuidTraceIdGenerator:
