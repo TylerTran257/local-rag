@@ -110,18 +110,6 @@ class DocumentService:
             session.refresh(document)
             return self.serialize_document(document)
 
-    def _validate_query(self, query: str, limit: int) -> None:
-        if not query.strip():
-            raise HTTPException(
-                status_code=400,
-                detail="Query must not be empty",
-            )
-
-        if limit <= 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Limit must be greater than 0",
-            )
 
     def _fuse_rankings_rrf(
         self, dense_results: list[dict], lexical_results: list[dict], limit: int
@@ -404,12 +392,9 @@ class DocumentService:
         )
         return result
 
-    def retrieve_context(self, query: str, limit: int) -> list[dict]:
-        return self.retrieve_context_dense(query, limit)
 
     def retrieve_context_dense(self, query: str, limit: int) -> list[dict]:
         started_at = perf_counter()
-        self._validate_query(query, limit)
 
         if not self.vector_store_service.has_indexed_chunks():
             raise HTTPException(
@@ -430,13 +415,10 @@ class DocumentService:
         return results
 
     def retrieve_context_lexical(self, query: str, limit: int) -> list[dict]:
-        self._validate_query(query, limit)
-
         return self.lexical_search_service.search(query, limit)
 
     def retrieve_context_hybrid(self, query: str, limit: int) -> list[dict]:
         started_at = perf_counter()
-        self._validate_query(query, limit)
 
         try:
             dense_results = self.retrieve_context_dense(
@@ -464,19 +446,7 @@ class DocumentService:
         )
         return results
 
-    def semantic_search(
-        self, query: str, limit: int
-    ) -> dict[str, str | int | list[str] | list[dict[str, str | int]]]:
-        results = self.retrieve_context(query, limit)
 
-        return {"query": query, "match_count": len(results), "results": results}
-
-    def hybrid_search(
-        self, query: str, limit: int
-    ) -> dict[str, str | int | list[str] | list[dict[str, str | int]]]:
-        results = self.retrieve_context_hybrid(query, limit)
-
-        return {"query": query, "match_count": len(results), "results": results}
 
     def serialize_document(self, document: Document) -> DocumentData:
         chunks = [chunk.text for chunk in document.chunks]
@@ -503,21 +473,6 @@ class DocumentService:
             "finished_at": job.finished_at.isoformat() if job.finished_at else None,
         }
 
-    def serialize_citations(self, contexts: list[dict]) -> list[dict]:
-        citations = []
-        for id, context in enumerate(contexts, start=1):
-            citations.append(
-                {
-                    "id": id,
-                    "document_id": context["document_id"],
-                    "original_filename": context["original_filename"],
-                    "chunk_index": context["chunk_index"],
-                    "score": context["score"],
-                    "text": context["text"],
-                }
-            )
-
-        return citations
 
     def create_job(self, document_id: str) -> JobData:
         with self.session_factory() as session:

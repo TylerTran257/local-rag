@@ -21,11 +21,19 @@ from app.services.generation_service import GenerationService
 from app.services.lexical_search_service import LexicalSearchService
 from app.services.text_extractor import TextExtractor
 from app.services.vector_store_service import VectorStoreService
+from app.retrieval.use_case import RetrieveUseCase
+from app.retrieval.legacy_adapter import LegacyDocumentRetrievalAdapter
+from app.retrieval import (
+    PassthroughScopePolicy,
+    StructuredLoggingTraceSink,
+    SystemClock,
+    UuidTraceIdGenerator,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def create_app(document_service=None, generation_service=None) -> FastAPI:
+def create_app(document_service=None, generation_service=None, retrieve_use_case=None) -> FastAPI:
     configure_logging()
     logger.info("event=app_started")
     app = FastAPI()
@@ -49,8 +57,27 @@ def create_app(document_service=None, generation_service=None) -> FastAPI:
     resolved_generation_service = generation_service
     if generation_service is None:
         resolved_generation_service = GenerationService()
+
+    # Wire Retrieval Core
+    resolved_retrieve_use_case = retrieve_use_case
+    if retrieve_use_case is None:
+        gateway = LegacyDocumentRetrievalAdapter(document_service=resolved_document_service)
+        scope_policy = PassthroughScopePolicy()
+        clock = SystemClock()
+        trace_id_generator = UuidTraceIdGenerator()
+        trace_sink = StructuredLoggingTraceSink()
+
+        resolved_retrieve_use_case = RetrieveUseCase(
+            gateway=gateway,
+            scope_policy=scope_policy,
+            clock=clock,
+            trace_id_generator=trace_id_generator,
+            trace_sink=trace_sink,
+        )
+
     app.state.document_service = resolved_document_service
     app.state.generation_service = resolved_generation_service
+    app.state.retrieve_use_case = resolved_retrieve_use_case
 
     app.include_router(health_router)
     app.include_router(pages_router)

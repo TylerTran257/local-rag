@@ -31,6 +31,18 @@ class FakeDocumentService:
         self.calls.append(("embed_document", document_id))
         return {"document_id": document_id, "status": "embedded", "embedding_count": 2}
 
+    def retrieve_context_dense(self, query, limit):
+        self.calls.append(("retrieve_context_dense", query, limit))
+        return self.contexts
+
+    def retrieve_context_lexical(self, query, limit):
+        self.calls.append(("retrieve_context_lexical", query, limit))
+        return self.contexts
+
+    def retrieve_context_hybrid(self, query, limit):
+        self.calls.append(("retrieve_context_hybrid", query, limit))
+        return self.contexts
+
     def get_document(self, document_id):
         self.calls.append(("get_document", document_id))
         return {
@@ -43,22 +55,7 @@ class FakeDocumentService:
             "chunks": ["chunk one", "chunk two"],
         }
 
-    def retrieve_context(self, query, limit):
-        self.calls.append(("retrieve_context", query, limit))
-        return self.contexts
 
-    def serialize_citations(self, contexts):
-        return [
-            {
-                "id": index,
-                "document_id": context["document_id"],
-                "original_filename": context["original_filename"],
-                "chunk_index": context["chunk_index"],
-                "score": context["score"],
-                "text": context["text"],
-            }
-            for index, context in enumerate(contexts, start=1)
-        ]
 
     def create_job(self, document_id: str):
         self.calls.append(("create_job", document_id))
