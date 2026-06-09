@@ -1,6 +1,5 @@
 """Core value objects and enums for the Retrieval Core."""
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -83,15 +82,19 @@ class EffectiveRetrieveRequest:
     original_query: str
     retrieval_mode: RetrievalMode
     limit: int
-    validated_scope: ScopeDecision
+    validated_scope: RetrievalScope
     correlation_id: str | None = None
 
 
 @dataclass
 class RetrievedChunk:
     """A single piece of content returned from retrieval with normalized metadata."""
+    chunk_id: str
+    document_id: str
     content: str
     score: float
+    rank: int
+    retrieval_mode: RetrievalMode
     metadata: dict[str, Any]
 
 
@@ -114,3 +117,4 @@ class RetrievalTrace:
     timing: dict[str, Any]
     result_count: int
     warnings: list[RetrievalWarning] = field(default_factory=list)
+    diagnostics: dict[str, Any] = field(default_factory=dict)

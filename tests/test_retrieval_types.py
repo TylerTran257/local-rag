@@ -140,32 +140,31 @@ def test_effective_retrieve_request_construction():
         collections=["documents"],
         filters={}
     )
-    scope_decision = ScopeDecision(
-        validated_scope=scope,
-        policy_name="PassthroughScopePolicy",
-        warnings=[]
-    )
     effective_request = EffectiveRetrieveRequest(
         normalized_query="test query",
         original_query=" test query ",
         retrieval_mode=RetrievalMode.DENSE,
         limit=5,
-        validated_scope=scope_decision,
+        validated_scope=scope,
         correlation_id="corr-123"
     )
     assert effective_request.normalized_query == "test query"
     assert effective_request.original_query == " test query "
     assert effective_request.retrieval_mode == RetrievalMode.DENSE
     assert effective_request.limit == 5
-    assert effective_request.validated_scope == scope_decision
+    assert effective_request.validated_scope == scope
     assert effective_request.correlation_id == "corr-123"
 
 
 # Test RetrievedChunk
 def test_retrieved_chunk_construction():
     chunk = RetrievedChunk(
+        chunk_id="doc-123:0",
+        document_id="doc-123",
         content="chunk text",
         score=0.95,
+        rank=1,
+        retrieval_mode=RetrievalMode.DENSE,
         metadata={
             "service_name": "local-rag",
             "tenant_id": "default",
@@ -176,8 +175,12 @@ def test_retrieved_chunk_construction():
             "chunk_index": 0
         }
     )
+    assert chunk.chunk_id == "doc-123:0"
+    assert chunk.document_id == "doc-123"
     assert chunk.content == "chunk text"
     assert chunk.score == 0.95
+    assert chunk.rank == 1
+    assert chunk.retrieval_mode == RetrievalMode.DENSE
     assert chunk.metadata["service_name"] == "local-rag"
     assert chunk.metadata["tenant_id"] == "default"
     assert chunk.metadata["collection"] == "documents"
@@ -216,8 +219,12 @@ def test_retrieval_warning_optional_details():
 # Test RetrievalGatewayResult
 def test_retrieval_gateway_result_construction():
     chunk = RetrievedChunk(
+        chunk_id="doc-123:0",
+        document_id="doc-123",
         content="chunk text",
         score=0.95,
+        rank=1,
+        retrieval_mode=RetrievalMode.DENSE,
         metadata={
             "service_name": "local-rag",
             "tenant_id": "default",
@@ -279,6 +286,7 @@ def test_retrieval_trace_construction_success():
     assert trace.status == TraceStatus.SUCCESS
     assert trace.failure_stage is None
     assert trace.result_count == 3
+    assert trace.diagnostics == {}
 
 
 def test_retrieval_trace_construction_failed():
@@ -290,11 +298,13 @@ def test_retrieval_trace_construction_failed():
         request_summary={"query": "", "mode": "DENSE", "limit": 5},
         timing={"start": "2026-06-08T10:00:00", "end": "2026-06-08T10:00:01", "duration_ms": 10},
         result_count=0,
-        warnings=[]
+        warnings=[],
+        diagnostics={"validation_error": "empty query"}
     )
     assert trace.status == TraceStatus.FAILED
     assert trace.failure_stage == FailureStage.REQUEST_VALIDATION
     assert trace.result_count == 0
+    assert trace.diagnostics == {"validation_error": "empty query"}
 
 
 # Test Domain Errors
