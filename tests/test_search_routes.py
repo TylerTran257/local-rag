@@ -3,7 +3,6 @@ from fastapi.testclient import TestClient
 from app.api.retrieval_helpers import map_retrieval_error_to_response
 from app.main import create_app
 from app.retrieval import (
-    RetrievalGatewayResult,
     RetrievedChunk,
     RetrievalMode,
     InvalidRetrievalRequestError,
@@ -11,6 +10,7 @@ from app.retrieval import (
     RetrievedChunkValidationError,
     UnsupportedRetrievalModeError,
 )
+from app.retrieval.use_case import RetrieveResult
 
 
 def make_chunk() -> RetrievedChunk:
@@ -57,7 +57,7 @@ def make_client(fake_document_service, fake_generation_service, retrieve_use_cas
 
 def test_semantic_search_preserves_success_response_shape(fake_document_service, fake_generation_service):
     retrieve_use_case = FakeRetrieveUseCase(
-        result=RetrievalGatewayResult(chunks=[make_chunk()], warnings=[], diagnostics={})
+        result=RetrieveResult(chunks=[make_chunk()], warnings=[])
     )
     client = make_client(fake_document_service, fake_generation_service, retrieve_use_case)
 
@@ -84,7 +84,7 @@ def test_hybrid_search_preserves_success_response_shape(fake_document_service, f
     chunk = make_chunk()
     chunk.retrieval_mode = RetrievalMode.HYBRID
     retrieve_use_case = FakeRetrieveUseCase(
-        result=RetrievalGatewayResult(chunks=[chunk], warnings=[], diagnostics={})
+        result=RetrieveResult(chunks=[chunk], warnings=[])
     )
     client = make_client(fake_document_service, fake_generation_service, retrieve_use_case)
 

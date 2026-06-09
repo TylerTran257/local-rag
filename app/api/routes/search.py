@@ -15,8 +15,8 @@ from app.retrieval import (
 router = APIRouter()
 
 
-@router.post("/semantic-search")
-def semantic_search_document(request: Request, searchRequest: SearchRequest) -> dict:
+@router.post("/semantic-search", response_model=None)
+def semantic_search_document(request: Request, searchRequest: SearchRequest):
     retrieve_request = RetrieveRequest(
         query=searchRequest.query,
         retrieval_mode=RetrievalMode.DENSE,
@@ -49,8 +49,8 @@ def semantic_search_document(request: Request, searchRequest: SearchRequest) -> 
     }
 
 
-@router.post("/hybrid-search")
-def hybrid_search_document(request: Request, searchRequest: SearchRequest) -> dict:
+@router.post("/hybrid-search", response_model=None)
+def hybrid_search_document(request: Request, searchRequest: SearchRequest):
     retrieve_request = RetrieveRequest(
         query=searchRequest.query,
         retrieval_mode=RetrievalMode.HYBRID,
