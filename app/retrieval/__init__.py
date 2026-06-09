@@ -49,7 +49,7 @@ from app.retrieval.trace import (
     UuidTraceIdGenerator,
 )
 
-from app.retrieval.policy import PassthroughScopePolicy
+from app.retrieval.policy import NamespacePolicy, PassthroughScopePolicy
 
 
 __all__ = [
@@ -87,5 +87,6 @@ __all__ = [
     "StructuredLoggingTraceSink",
     "SystemClock",
     "UuidTraceIdGenerator",
+    "NamespacePolicy",
     "PassthroughScopePolicy",
 ]

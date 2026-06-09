@@ -14,6 +14,7 @@ class RetrievalMode(Enum):
 class WarningCode(Enum):
     """Warning codes for retrieval warnings."""
     LEGACY_METADATA_DEFAULTED = "LEGACY_METADATA_DEFAULTED"
+    NAMESPACE_DEFAULT_SCOPE = "NAMESPACE_DEFAULT_SCOPE"
     EMPTY_RETRIEVAL_RESULT = "EMPTY_RETRIEVAL_RESULT"
 
 

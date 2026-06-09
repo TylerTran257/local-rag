@@ -34,6 +34,7 @@ from app.retrieval import (
     InMemoryTraceSink,
     NoOpTraceSink,
     StructuredLoggingTraceSink,
+    NamespacePolicy,
     PassthroughScopePolicy,
     SystemClock,
     UuidTraceIdGenerator,
@@ -49,6 +50,7 @@ def test_retrieval_mode_enum():
 
 def test_warning_code_enum():
     assert WarningCode.LEGACY_METADATA_DEFAULTED
+    assert WarningCode.NAMESPACE_DEFAULT_SCOPE
     assert WarningCode.EMPTY_RETRIEVAL_RESULT
 
 
@@ -476,6 +478,150 @@ def test_passthrough_scope_policy_empty_tenant_id():
         policy.evaluate(scope)
 
     assert "tenant_id" in exc_info.value.internal_message.lower()
+
+
+def test_namespace_policy_implements_scope_policy_protocol():
+    policy: ScopePolicy = NamespacePolicy()
+    scope = RetrievalScope(
+        service_name="test-service",
+        tenant_id="tenant-123",
+        collections=["documents"],
+        filters={},
+    )
+
+    decision = policy.evaluate(scope)
+
+    assert decision.policy_name == "NamespacePolicy"
+
+
+def test_namespace_policy_empty_collections():
+    policy = NamespacePolicy()
+    scope = RetrievalScope(
+        service_name="test-service",
+        tenant_id="tenant-123",
+        collections=[],
+        filters={},
+    )
+
+    with pytest.raises(InvalidRetrievalRequestError) as exc_info:
+        policy.evaluate(scope)
+
+    assert "collections" in exc_info.value.internal_message.lower()
+
+
+def test_namespace_policy_empty_collection_name():
+    policy = NamespacePolicy()
+    scope = RetrievalScope(
+        service_name="test-service",
+        tenant_id="tenant-123",
+        collections=["documents", ""],
+        filters={},
+    )
+
+    with pytest.raises(InvalidRetrievalRequestError) as exc_info:
+        policy.evaluate(scope)
+
+    assert "collection" in exc_info.value.internal_message.lower()
+
+
+def test_namespace_policy_empty_service_name():
+    policy = NamespacePolicy()
+    scope = RetrievalScope(
+        service_name="",
+        tenant_id="tenant-123",
+        collections=["documents"],
+        filters={},
+    )
+
+    with pytest.raises(InvalidRetrievalRequestError) as exc_info:
+        policy.evaluate(scope)
+
+    assert "service_name" in exc_info.value.internal_message.lower()
+
+
+def test_namespace_policy_empty_tenant_id():
+    policy = NamespacePolicy()
+    scope = RetrievalScope(
+        service_name="test-service",
+        tenant_id="",
+        collections=["documents"],
+        filters={},
+    )
+
+    with pytest.raises(InvalidRetrievalRequestError) as exc_info:
+        policy.evaluate(scope)
+
+    assert "tenant_id" in exc_info.value.internal_message.lower()
+
+
+def test_namespace_policy_rejects_disallowed_collection():
+    policy = NamespacePolicy(allowed_collections={"documents", "notes"})
+    scope = RetrievalScope(
+        service_name="test-service",
+        tenant_id="tenant-123",
+        collections=["documents", "secret"],
+        filters={},
+    )
+
+    with pytest.raises(InvalidRetrievalRequestError) as exc_info:
+        policy.evaluate(scope)
+
+    assert exc_info.value.details["invalid_collections"] == ["secret"]
+
+
+def test_namespace_policy_accepts_allowed_collections():
+    policy = NamespacePolicy(allowed_collections={"documents", "notes"})
+    scope = RetrievalScope(
+        service_name="test-service",
+        tenant_id="tenant-123",
+        collections=["documents", "notes"],
+        filters={"topic": "rag"},
+    )
+
+    decision = policy.evaluate(scope)
+
+    assert decision.validated_scope == scope
+    assert decision.warnings == []
+
+
+def test_namespace_policy_passes_all_collections_when_unconfigured():
+    policy = NamespacePolicy()
+    scope = RetrievalScope(
+        service_name="test-service",
+        tenant_id="tenant-123",
+        collections=["documents", "other-service"],
+        filters={},
+    )
+
+    decision = policy.evaluate(scope)
+
+    assert decision.validated_scope == scope
+    assert decision.warnings == []
+
+
+def test_namespace_policy_emits_default_scope_warning():
+    policy = NamespacePolicy()
+    scope = RetrievalScope(
+        service_name="local-rag",
+        tenant_id="default",
+        collections=["documents"],
+        filters={},
+    )
+
+    decision = policy.evaluate(scope)
+
+    assert len(decision.warnings) == 1
+    warning = decision.warnings[0]
+    assert warning.code == WarningCode.NAMESPACE_DEFAULT_SCOPE
+    assert warning.severity == WarningSeverity.LOW
+    assert warning.source == "NamespacePolicy"
+    assert "sentinel default scope" in warning.message.lower()
+
+
+def test_namespace_policy_is_exported_from_package():
+    from app.retrieval import NamespacePolicy as ExportedNamespacePolicy
+
+    assert ExportedNamespacePolicy is NamespacePolicy
 
 
 # Test SystemClock
