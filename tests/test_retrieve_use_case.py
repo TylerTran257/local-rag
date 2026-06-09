@@ -4,6 +4,7 @@ from app.retrieval import (
     RetrieveRequest,
     RetrievalScope,
     RetrievalMode,
+    ScopeDecision,
     EffectiveRetrieveRequest,
     RetrievedChunk,
     RetrievalGatewayResult,
@@ -219,6 +220,7 @@ def test_empty_query_raises_invalid_request_error(use_case, valid_scope, trace_s
     # Check trace was emitted with failure
     assert len(trace_sink.traces) == 1
     trace = trace_sink.traces[0]
+    assert error.trace_id == trace.trace_id
     assert trace.status == TraceStatus.FAILED
     assert trace.failure_stage == FailureStage.REQUEST_VALIDATION
 
@@ -295,6 +297,61 @@ def test_scope_policy_is_invoked(use_case, fake_gateway, valid_scope, trace_sink
     assert len(fake_gateway.calls) == 1
     effective_request = fake_gateway.calls[0]
     assert effective_request.validated_scope == valid_scope
+
+
+def test_gateway_receives_effective_request_with_validated_scope(trace_sink, clock, trace_id_generator):
+    original_scope = RetrievalScope(
+        service_name="original-service",
+        tenant_id="tenant-original",
+        collections=["drafts"],
+        filters={"source_type": "draft"}
+    )
+    validated_scope = RetrievalScope(
+        service_name="validated-service",
+        tenant_id="tenant-validated",
+        collections=["documents"],
+        filters={"source_type": "document"}
+    )
+
+    class ScopePolicyWithRewrite:
+        def evaluate(self, scope: RetrievalScope) -> ScopeDecision:
+            return ScopeDecision(
+                validated_scope=validated_scope,
+                policy_name="test-policy",
+                warnings=[],
+            )
+
+    fake_gateway = FakeGateway()
+    fake_gateway.chunks_to_return = [
+        make_chunk(
+            metadata_overrides={
+                "service_name": "validated-service",
+                "tenant_id": "tenant-validated",
+                "collection": "documents",
+                "source_type": "document",
+            }
+        )
+    ]
+    use_case = RetrieveUseCase(
+        gateway=fake_gateway,
+        scope_policy=ScopePolicyWithRewrite(),
+        clock=clock,
+        trace_id_generator=trace_id_generator,
+        trace_sink=trace_sink
+    )
+    request = RetrieveRequest(
+        query="test",
+        retrieval_mode=RetrievalMode.DENSE,
+        limit=5,
+        scope=original_scope
+    )
+
+    use_case.execute(request)
+
+    assert len(fake_gateway.calls) == 1
+    effective_request = fake_gateway.calls[0]
+    assert isinstance(effective_request, EffectiveRetrieveRequest)
+    assert effective_request.validated_scope == validated_scope
 
 
 def test_scope_validation_failure_raises_error_with_scope_policy_stage(use_case, trace_sink):
@@ -557,6 +614,60 @@ def test_post_validation_accepts_chunk_matching_list_filter_value(use_case, fake
     assert result.chunks[0].metadata["priority"] == "medium"
 
 
+def test_post_validation_uses_validated_scope_not_original_request(trace_sink, clock, trace_id_generator):
+    original_scope = RetrievalScope(
+        service_name="original-service",
+        tenant_id="tenant-original",
+        collections=["drafts"],
+        filters={"source_type": "draft"}
+    )
+    validated_scope = RetrievalScope(
+        service_name="validated-service",
+        tenant_id="tenant-validated",
+        collections=["documents"],
+        filters={"source_type": "document"}
+    )
+
+    class ScopePolicyWithRewrite:
+        def evaluate(self, scope: RetrievalScope) -> ScopeDecision:
+            return ScopeDecision(
+                validated_scope=validated_scope,
+                policy_name="test-policy",
+                warnings=[],
+            )
+
+    fake_gateway = FakeGateway()
+    fake_gateway.chunks_to_return = [
+        make_chunk(
+            metadata_overrides={
+                "service_name": "validated-service",
+                "tenant_id": "tenant-validated",
+                "collection": "documents",
+                "source_type": "document",
+            }
+        )
+    ]
+    use_case = RetrieveUseCase(
+        gateway=fake_gateway,
+        scope_policy=ScopePolicyWithRewrite(),
+        clock=clock,
+        trace_id_generator=trace_id_generator,
+        trace_sink=trace_sink
+    )
+    request = RetrieveRequest(
+        query="test",
+        retrieval_mode=RetrievalMode.DENSE,
+        limit=5,
+        scope=original_scope
+    )
+
+    result = use_case.execute(request)
+
+    assert len(result.chunks) == 1
+    assert result.chunks[0].metadata["service_name"] == "validated-service"
+    assert trace_sink.traces[0].status == TraceStatus.SUCCESS
+
+
 # Test: Warning aggregation
 def test_warnings_from_gateway_and_scope_policy_are_merged(use_case, fake_gateway, valid_request):
     gateway_warning = RetrievalWarning(
@@ -593,6 +704,18 @@ def test_trace_emitted_on_success(use_case, fake_gateway, valid_request, trace_s
     assert trace.correlation_id == "corr-123"
     assert isinstance(trace.trace_id, str)
     assert "start" in trace.timing or "duration_ms" in trace.timing
+
+
+def test_zero_chunks_is_successful_retrieval(use_case, fake_gateway, valid_request, trace_sink):
+    fake_gateway.chunks_to_return = []
+
+    result = use_case.execute(valid_request)
+
+    assert result.chunks == []
+    assert len(trace_sink.traces) == 1
+    trace = trace_sink.traces[0]
+    assert trace.status == TraceStatus.SUCCESS
+    assert trace.result_count == 0
 
 
 def test_trace_emitted_on_failure(use_case, valid_scope, trace_sink):
