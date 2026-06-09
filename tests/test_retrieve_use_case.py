@@ -65,6 +65,7 @@ class FakeGateway:
     def __init__(self):
         self.chunks_to_return = []
         self.warnings_to_return = []
+        self.diagnostics_to_return = {}
         self.exception_to_raise = None
         self.calls = []
 
@@ -77,7 +78,7 @@ class FakeGateway:
         return RetrievalGatewayResult(
             chunks=self.chunks_to_return,
             warnings=self.warnings_to_return,
-            diagnostics={}
+            diagnostics=self.diagnostics_to_return
         )
 
 
@@ -629,3 +630,161 @@ def test_trace_includes_all_required_fields(use_case, fake_gateway, valid_reques
     assert "start" in trace.timing or "duration_ms" in trace.timing
     assert trace.result_count == 1
     assert isinstance(trace.warnings, list)
+
+
+# Test: Gateway diagnostics propagation
+def test_success_trace_includes_gateway_diagnostics(use_case, fake_gateway, valid_request, trace_sink):
+    """Success trace should include diagnostics from gateway result."""
+    fake_gateway.chunks_to_return = [make_chunk()]
+
+    # Fake gateway will return diagnostics
+    class GatewayWithDiagnostics:
+        def retrieve(self, request):
+            return RetrievalGatewayResult(
+                chunks=[make_chunk()],
+                warnings=[],
+                diagnostics={"adapter": "legacy", "search_ms": 42}
+            )
+
+    use_case.gateway = GatewayWithDiagnostics()
+    use_case.execute(valid_request)
+
+    # Check trace has diagnostics
+    assert len(trace_sink.traces) == 1
+    trace = trace_sink.traces[0]
+    assert trace.status == TraceStatus.SUCCESS
+    assert "adapter" in trace.diagnostics
+    assert trace.diagnostics["adapter"] == "legacy"
+    assert trace.diagnostics["search_ms"] == 42
+
+
+def test_diagnostics_not_in_public_response(use_case, fake_gateway, valid_request):
+    """Diagnostics should not be exposed in the public RetrieveResult."""
+    class GatewayWithDiagnostics:
+        def retrieve(self, request):
+            return RetrievalGatewayResult(
+                chunks=[make_chunk()],
+                warnings=[],
+                diagnostics={"internal": "data"}
+            )
+
+    use_case.gateway = GatewayWithDiagnostics()
+    result = use_case.execute(valid_request)
+
+    # RetrieveResult should only have chunks and warnings
+    assert hasattr(result, "chunks")
+    assert hasattr(result, "warnings")
+    assert not hasattr(result, "diagnostics")
+
+
+# Test: Non-fatal trace emission
+class FailingTraceSink:
+    """Trace sink that always fails."""
+
+    def __init__(self):
+        self.emit_calls = []
+
+    def emit(self, trace):
+        self.emit_calls.append(trace)
+        raise RuntimeError("Trace sink unavailable")
+
+
+def test_trace_sink_failure_does_not_fail_successful_retrieval(fake_gateway, scope_policy, clock, trace_id_generator, valid_request):
+    """If trace emission fails during successful retrieval, result should still be returned."""
+    failing_sink = FailingTraceSink()
+    use_case = RetrieveUseCase(
+        gateway=fake_gateway,
+        scope_policy=scope_policy,
+        clock=clock,
+        trace_id_generator=trace_id_generator,
+        trace_sink=failing_sink
+    )
+
+    fake_gateway.chunks_to_return = [make_chunk()]
+
+    # Should not raise despite trace sink failure
+    result = use_case.execute(valid_request)
+
+    assert len(result.chunks) == 1
+    assert len(failing_sink.emit_calls) == 1  # Trace emission was attempted
+
+
+def test_trace_sink_failure_produces_operational_warning(fake_gateway, scope_policy, clock, trace_id_generator, valid_request, caplog):
+    """When trace emission fails, an operational warning should be logged."""
+    import logging
+
+    failing_sink = FailingTraceSink()
+    use_case = RetrieveUseCase(
+        gateway=fake_gateway,
+        scope_policy=scope_policy,
+        clock=clock,
+        trace_id_generator=trace_id_generator,
+        trace_sink=failing_sink
+    )
+
+    fake_gateway.chunks_to_return = [make_chunk()]
+
+    with caplog.at_level(logging.WARNING):
+        use_case.execute(valid_request)
+
+    # Should have logged a warning about trace emission failure
+    assert any("Failed to emit" in record.message for record in caplog.records)
+    assert any("trace" in record.message.lower() for record in caplog.records)
+
+
+def test_trace_sink_failure_on_failed_retrieval_does_not_suppress_error(scope_policy, clock, trace_id_generator, valid_scope):
+    """If trace emission fails during failed retrieval, original error should still propagate."""
+    failing_sink = FailingTraceSink()
+    fake_gateway = FakeGateway()
+
+    use_case = RetrieveUseCase(
+        gateway=fake_gateway,
+        scope_policy=scope_policy,
+        clock=clock,
+        trace_id_generator=trace_id_generator,
+        trace_sink=failing_sink
+    )
+
+    request = RetrieveRequest(
+        query="",  # Invalid - empty query
+        retrieval_mode=RetrievalMode.DENSE,
+        limit=5,
+        scope=valid_scope
+    )
+
+    # Should still raise the validation error
+    with pytest.raises(InvalidRetrievalRequestError):
+        use_case.execute(request)
+
+    # Trace emission was attempted
+    assert len(failing_sink.emit_calls) == 1
+
+
+def test_all_failure_stages_emit_traces_even_with_failing_sink(scope_policy, clock, trace_id_generator, valid_scope):
+    """All failure stages should attempt trace emission even if sink fails."""
+    failing_sink = FailingTraceSink()
+    fake_gateway = FakeGateway()
+
+    use_case = RetrieveUseCase(
+        gateway=fake_gateway,
+        scope_policy=scope_policy,
+        clock=clock,
+        trace_id_generator=trace_id_generator,
+        trace_sink=failing_sink
+    )
+
+    # Test request validation failure
+    request = RetrieveRequest(
+        query="",
+        retrieval_mode=RetrievalMode.DENSE,
+        limit=5,
+        scope=valid_scope
+    )
+
+    try:
+        use_case.execute(request)
+    except InvalidRetrievalRequestError:
+        pass
+
+    assert len(failing_sink.emit_calls) == 1
+    assert failing_sink.emit_calls[0].failure_stage == FailureStage.REQUEST_VALIDATION

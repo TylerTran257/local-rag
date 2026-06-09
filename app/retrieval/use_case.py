@@ -1,4 +1,5 @@
 """RetrieveUseCase - central orchestrator of the Retrieval Core."""
+import logging
 from dataclasses import dataclass
 from time import perf_counter
 
@@ -26,6 +27,9 @@ from app.retrieval.contracts import (
     TraceIdGenerator,
     RetrievalTraceSink,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -181,7 +185,7 @@ class RetrieveUseCase:
             # Merge warnings from gateway and scope decision
             all_warnings = list(scope_decision.warnings) + list(gateway_result.warnings)
 
-            # Emit success trace
+            # Emit success trace with gateway diagnostics
             self._emit_success_trace(
                 trace_id=trace_id,
                 correlation_id=request.correlation_id,
@@ -192,6 +196,7 @@ class RetrieveUseCase:
                 start_perf=start_perf,
                 result_count=len(gateway_result.chunks),
                 warnings=all_warnings,
+                diagnostics=gateway_result.diagnostics,
             )
 
             return RetrieveResult(
@@ -346,6 +351,7 @@ class RetrieveUseCase:
         start_perf: float,
         result_count: int,
         warnings: list[RetrievalWarning],
+        diagnostics: dict | None = None,
     ) -> None:
         """Emit a successful retrieval trace."""
         end_time = self.clock.now()
@@ -364,9 +370,18 @@ class RetrieveUseCase:
             },
             result_count=result_count,
             warnings=warnings,
+            diagnostics=diagnostics or {},
         )
 
-        self.trace_sink.emit(trace)
+        try:
+            self.trace_sink.emit(trace)
+        except Exception as e:
+            logger.warning(
+                "Failed to emit success trace trace_id=%s error=%s",
+                trace_id,
+                str(e),
+                exc_info=True,
+            )
 
     def _emit_failed_trace(
         self,
@@ -398,4 +413,13 @@ class RetrieveUseCase:
             warnings=warnings,
         )
 
-        self.trace_sink.emit(trace)
+        try:
+            self.trace_sink.emit(trace)
+        except Exception as e:
+            logger.warning(
+                "Failed to emit failure trace trace_id=%s failure_stage=%s error=%s",
+                trace_id,
+                failure_stage.value,
+                str(e),
+                exc_info=True,
+            )
