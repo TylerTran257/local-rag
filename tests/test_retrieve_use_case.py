@@ -1,6 +1,5 @@
 """Tests for RetrieveUseCase - central orchestrator of the Retrieval Core."""
 import pytest
-from datetime import datetime
 from app.retrieval import (
     RetrieveRequest,
     RetrievalScope,
@@ -8,7 +7,6 @@ from app.retrieval import (
     EffectiveRetrieveRequest,
     RetrievedChunk,
     RetrievalGatewayResult,
-    ScopeDecision,
     RetrievalWarning,
     WarningCode,
     WarningSeverity,
@@ -25,6 +23,39 @@ from app.retrieval import (
     UuidTraceIdGenerator,
 )
 from app.retrieval.use_case import RetrieveUseCase
+
+
+def make_chunk(
+    *,
+    chunk_id: str = "doc-1:0",
+    document_id: str = "doc-1",
+    content: str = "test",
+    score: float = 0.9,
+    rank: int = 1,
+    retrieval_mode: RetrievalMode = RetrievalMode.DENSE,
+    metadata_overrides: dict | None = None,
+) -> RetrievedChunk:
+    metadata = {
+        "service_name": "test-service",
+        "tenant_id": "tenant-123",
+        "collection": "documents",
+        "source_type": "document",
+        "source_label": "test.pdf",
+        "document_id": document_id,
+        "chunk_index": 0,
+    }
+    if metadata_overrides:
+        metadata.update(metadata_overrides)
+
+    return RetrievedChunk(
+        chunk_id=chunk_id,
+        document_id=document_id,
+        content=content,
+        score=score,
+        rank=rank,
+        retrieval_mode=retrieval_mode,
+        metadata=metadata,
+    )
 
 
 # Test Fixtures - Fake Gateway for testing
@@ -122,19 +153,7 @@ def test_use_case_accepts_dependencies(fake_gateway, scope_policy, clock, trace_
 # Test: Successful retrieval
 def test_execute_returns_chunks_and_warnings_on_success(use_case, fake_gateway, valid_request, valid_scope):
     # Setup fake gateway to return chunks
-    chunk = RetrievedChunk(
-        content="test content",
-        score=0.95,
-        metadata={
-            "service_name": "test-service",
-            "tenant_id": "tenant-123",
-            "collection": "documents",
-            "source_type": "document",
-            "source_label": "test.pdf",
-            "document_id": "doc-1",
-            "chunk_index": 0
-        }
-    )
+    chunk = make_chunk(content="test content", score=0.95)
     warning = RetrievalWarning(
         code=WarningCode.LEGACY_METADATA_DEFAULTED,
         severity=WarningSeverity.LOW,
@@ -162,19 +181,7 @@ def test_query_normalization_trims_whitespace(use_case, fake_gateway, valid_scop
     )
 
     fake_gateway.chunks_to_return = [
-        RetrievedChunk(
-            content="test",
-            score=0.9,
-            metadata={
-                "service_name": "test-service",
-                "tenant_id": "tenant-123",
-                "collection": "documents",
-                "source_type": "document",
-                "source_label": "test.pdf",
-                "document_id": "doc-1",
-                "chunk_index": 0
-            }
-        )
+        make_chunk()
     ]
 
     use_case.execute(request)
@@ -278,19 +285,7 @@ def test_scope_policy_is_invoked(use_case, fake_gateway, valid_scope, trace_sink
     )
 
     fake_gateway.chunks_to_return = [
-        RetrievedChunk(
-            content="test",
-            score=0.9,
-            metadata={
-                "service_name": "test-service",
-                "tenant_id": "tenant-123",
-                "collection": "documents",
-                "source_type": "document",
-                "source_label": "test.pdf",
-                "document_id": "doc-1",
-                "chunk_index": 0
-            }
-        )
+        make_chunk()
     ]
 
     use_case.execute(request)
@@ -298,8 +293,7 @@ def test_scope_policy_is_invoked(use_case, fake_gateway, valid_scope, trace_sink
     # Verify scope was passed to gateway
     assert len(fake_gateway.calls) == 1
     effective_request = fake_gateway.calls[0]
-    assert effective_request.validated_scope.validated_scope == valid_scope
-    assert effective_request.validated_scope.policy_name == "PassthroughScopePolicy"
+    assert effective_request.validated_scope == valid_scope
 
 
 def test_scope_validation_failure_raises_error_with_scope_policy_stage(use_case, trace_sink):
@@ -359,18 +353,14 @@ def test_gateway_unexpected_exception_wrapped_in_retrieval_execution_error(use_c
 # Test: Post-validation of chunks
 def test_post_validation_checks_required_metadata_fields(use_case, fake_gateway, valid_request, trace_sink):
     # Chunk missing required field
-    chunk = RetrievedChunk(
-        content="test",
-        score=0.9,
-        metadata={
-            "service_name": "test-service",
-            "tenant_id": "tenant-123",
-            "collection": "documents",
-            # Missing source_type and source_label
-            "document_id": "doc-1",
-            "chunk_index": 0
+    chunk = make_chunk(
+        metadata_overrides={
+            "source_type": None,
+            "source_label": None,
         }
     )
+    del chunk.metadata["source_type"]
+    del chunk.metadata["source_label"]
     fake_gateway.chunks_to_return = [chunk]
 
     with pytest.raises(RetrievedChunkValidationError) as exc_info:
@@ -387,19 +377,7 @@ def test_post_validation_checks_required_metadata_fields(use_case, fake_gateway,
 
 def test_post_validation_checks_scope_compliance(use_case, fake_gateway, valid_request, trace_sink):
     # Chunk with mismatched service_name
-    chunk = RetrievedChunk(
-        content="test",
-        score=0.9,
-        metadata={
-            "service_name": "wrong-service",  # Doesn't match request scope
-            "tenant_id": "tenant-123",
-            "collection": "documents",
-            "source_type": "document",
-            "source_label": "test.pdf",
-            "document_id": "doc-1",
-            "chunk_index": 0
-        }
-    )
+    chunk = make_chunk(metadata_overrides={"service_name": "wrong-service"})
     fake_gateway.chunks_to_return = [chunk]
 
     with pytest.raises(RetrievedChunkValidationError) as exc_info:
@@ -420,19 +398,7 @@ def test_warnings_from_gateway_and_scope_policy_are_merged(use_case, fake_gatewa
     )
     fake_gateway.warnings_to_return = [gateway_warning]
     fake_gateway.chunks_to_return = [
-        RetrievedChunk(
-            content="test",
-            score=0.9,
-            metadata={
-                "service_name": "test-service",
-                "tenant_id": "tenant-123",
-                "collection": "documents",
-                "source_type": "document",
-                "source_label": "test.pdf",
-                "document_id": "doc-1",
-                "chunk_index": 0
-            }
-        )
+        make_chunk()
     ]
 
     result = use_case.execute(valid_request)
@@ -445,19 +411,7 @@ def test_warnings_from_gateway_and_scope_policy_are_merged(use_case, fake_gatewa
 # Test: Trace emission
 def test_trace_emitted_on_success(use_case, fake_gateway, valid_request, trace_sink):
     fake_gateway.chunks_to_return = [
-        RetrievedChunk(
-            content="test",
-            score=0.9,
-            metadata={
-                "service_name": "test-service",
-                "tenant_id": "tenant-123",
-                "collection": "documents",
-                "source_type": "document",
-                "source_label": "test.pdf",
-                "document_id": "doc-1",
-                "chunk_index": 0
-            }
-        )
+        make_chunk()
     ]
 
     use_case.execute(valid_request)
@@ -495,19 +449,7 @@ def test_trace_emitted_on_failure(use_case, valid_scope, trace_sink):
 # Test: Trace includes timing, correlation_id, warnings
 def test_trace_includes_all_required_fields(use_case, fake_gateway, valid_request, trace_sink):
     fake_gateway.chunks_to_return = [
-        RetrievedChunk(
-            content="test",
-            score=0.9,
-            metadata={
-                "service_name": "test-service",
-                "tenant_id": "tenant-123",
-                "collection": "documents",
-                "source_type": "document",
-                "source_label": "test.pdf",
-                "document_id": "doc-1",
-                "chunk_index": 0
-            }
-        )
+        make_chunk()
     ]
 
     use_case.execute(valid_request)

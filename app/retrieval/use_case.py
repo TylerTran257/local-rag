@@ -114,7 +114,7 @@ class RetrieveUseCase:
                 original_query=original_query,
                 retrieval_mode=request.retrieval_mode,
                 limit=request.limit,
-                validated_scope=scope_decision,
+                validated_scope=scope_decision.validated_scope,
                 correlation_id=request.correlation_id,
             )
 
