@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request
 
-from app.api.retrieval_helpers import build_default_scope, map_retrieval_error_to_http
+from app.api.retrieval_helpers import build_default_scope, map_retrieval_error_to_response
 from app.api.schemas import SearchRequest
 from app.retrieval import (
     RetrieveRequest,
@@ -27,8 +27,8 @@ def semantic_search_document(request: Request, searchRequest: SearchRequest) -> 
     try:
         result = request.app.state.retrieve_use_case.execute(retrieve_request)
     except (InvalidRetrievalRequestError, UnsupportedRetrievalModeError,
-            NoIndexedCorpusError, RetrievalExecutionError, RetrievedChunkValidationError) as e:
-        raise map_retrieval_error_to_http(e)
+             NoIndexedCorpusError, RetrievalExecutionError, RetrievedChunkValidationError) as e:
+        return map_retrieval_error_to_response(e)
 
     # Map RetrievedChunk back to legacy response format
     results = [
@@ -61,8 +61,8 @@ def hybrid_search_document(request: Request, searchRequest: SearchRequest) -> di
     try:
         result = request.app.state.retrieve_use_case.execute(retrieve_request)
     except (InvalidRetrievalRequestError, UnsupportedRetrievalModeError,
-            NoIndexedCorpusError, RetrievalExecutionError, RetrievedChunkValidationError) as e:
-        raise map_retrieval_error_to_http(e)
+             NoIndexedCorpusError, RetrievalExecutionError, RetrievedChunkValidationError) as e:
+        return map_retrieval_error_to_response(e)
 
     # Map RetrievedChunk back to legacy response format
     results = [
