@@ -388,6 +388,174 @@ def test_post_validation_checks_scope_compliance(use_case, fake_gateway, valid_r
     assert trace_sink.traces[0].failure_stage == FailureStage.POST_VALIDATION
 
 
+def test_post_validation_rejects_chunk_outside_validated_collections(use_case, fake_gateway, trace_sink):
+    # Request scope with multiple collections
+    scope = RetrievalScope(
+        service_name="test-service",
+        tenant_id="tenant-123",
+        collections=["documents", "notes"],
+        filters={}
+    )
+    request = RetrieveRequest(
+        query="test",
+        retrieval_mode=RetrievalMode.DENSE,
+        limit=5,
+        scope=scope
+    )
+
+    # Chunk from collection not in validated scope
+    chunk = make_chunk(metadata_overrides={"collection": "external-data"})
+    fake_gateway.chunks_to_return = [chunk]
+
+    with pytest.raises(RetrievedChunkValidationError) as exc_info:
+        use_case.execute(request)
+
+    error = exc_info.value
+    assert "collection" in error.internal_message
+    assert "external-data" in error.internal_message
+    assert trace_sink.traces[0].failure_stage == FailureStage.POST_VALIDATION
+
+
+def test_post_validation_rejects_chunk_violating_primitive_filter(use_case, fake_gateway, trace_sink):
+    # Scope with primitive filter constraint
+    scope = RetrievalScope(
+        service_name="test-service",
+        tenant_id="tenant-123",
+        collections=["documents"],
+        filters={"department": "engineering"}
+    )
+    request = RetrieveRequest(
+        query="test",
+        retrieval_mode=RetrievalMode.DENSE,
+        limit=5,
+        scope=scope
+    )
+
+    # Chunk with wrong department value
+    chunk = make_chunk(metadata_overrides={"department": "sales"})
+    fake_gateway.chunks_to_return = [chunk]
+
+    with pytest.raises(RetrievedChunkValidationError) as exc_info:
+        use_case.execute(request)
+
+    error = exc_info.value
+    assert "filter constraint" in error.internal_message
+    assert "department" in error.internal_message
+    assert trace_sink.traces[0].failure_stage == FailureStage.POST_VALIDATION
+
+
+def test_post_validation_rejects_chunk_violating_list_filter(use_case, fake_gateway, trace_sink):
+    # Scope with list filter constraint (field IN values)
+    scope = RetrievalScope(
+        service_name="test-service",
+        tenant_id="tenant-123",
+        collections=["documents"],
+        filters={"status": ["active", "pending"]}
+    )
+    request = RetrieveRequest(
+        query="test",
+        retrieval_mode=RetrievalMode.DENSE,
+        limit=5,
+        scope=scope
+    )
+
+    # Chunk with status not in allowed list
+    chunk = make_chunk(metadata_overrides={"status": "archived"})
+    fake_gateway.chunks_to_return = [chunk]
+
+    with pytest.raises(RetrievedChunkValidationError) as exc_info:
+        use_case.execute(request)
+
+    error = exc_info.value
+    assert "filter constraint" in error.internal_message
+    assert "status" in error.internal_message
+    assert "archived" in error.internal_message
+    assert trace_sink.traces[0].failure_stage == FailureStage.POST_VALIDATION
+
+
+def test_post_validation_accepts_chunk_satisfying_all_constraints(use_case, fake_gateway, valid_scope):
+    # Scope with both primitive and list filters
+    scope = RetrievalScope(
+        service_name="test-service",
+        tenant_id="tenant-123",
+        collections=["documents", "notes"],
+        filters={
+            "department": "engineering",
+            "status": ["active", "pending"]
+        }
+    )
+    request = RetrieveRequest(
+        query="test",
+        retrieval_mode=RetrievalMode.DENSE,
+        limit=5,
+        scope=scope
+    )
+
+    # Chunk satisfying all constraints
+    chunk = make_chunk(metadata_overrides={
+        "collection": "notes",
+        "department": "engineering",
+        "status": "pending"
+    })
+    fake_gateway.chunks_to_return = [chunk]
+
+    result = use_case.execute(request)
+
+    # Should succeed and return the chunk
+    assert len(result.chunks) == 1
+    assert result.chunks[0] == chunk
+
+
+def test_post_validation_accepts_chunk_in_one_of_validated_collections(use_case, fake_gateway):
+    # Scope with multiple collections
+    scope = RetrievalScope(
+        service_name="test-service",
+        tenant_id="tenant-123",
+        collections=["documents", "notes", "files"],
+        filters={}
+    )
+    request = RetrieveRequest(
+        query="test",
+        retrieval_mode=RetrievalMode.DENSE,
+        limit=5,
+        scope=scope
+    )
+
+    # Chunk from one of the validated collections
+    chunk = make_chunk(metadata_overrides={"collection": "files"})
+    fake_gateway.chunks_to_return = [chunk]
+
+    result = use_case.execute(request)
+
+    assert len(result.chunks) == 1
+    assert result.chunks[0].metadata["collection"] == "files"
+
+
+def test_post_validation_accepts_chunk_matching_list_filter_value(use_case, fake_gateway):
+    # Scope with list filter
+    scope = RetrievalScope(
+        service_name="test-service",
+        tenant_id="tenant-123",
+        collections=["documents"],
+        filters={"priority": ["high", "medium", "low"]}
+    )
+    request = RetrieveRequest(
+        query="test",
+        retrieval_mode=RetrievalMode.DENSE,
+        limit=5,
+        scope=scope
+    )
+
+    # Chunk with priority in allowed list
+    chunk = make_chunk(metadata_overrides={"priority": "medium"})
+    fake_gateway.chunks_to_return = [chunk]
+
+    result = use_case.execute(request)
+
+    assert len(result.chunks) == 1
+    assert result.chunks[0].metadata["priority"] == "medium"
+
+
 # Test: Warning aggregation
 def test_warnings_from_gateway_and_scope_policy_are_merged(use_case, fake_gateway, valid_request):
     gateway_warning = RetrievalWarning(

@@ -4,6 +4,7 @@ from time import perf_counter
 
 from app.retrieval.types import (
     RetrieveRequest,
+    RetrievalScope,
     EffectiveRetrieveRequest,
     RetrievedChunk,
     RetrievalWarning,
@@ -160,7 +161,7 @@ class RetrieveUseCase:
             # Post-validate chunks
             try:
                 self._post_validate_chunks(
-                    gateway_result.chunks, request.scope, trace_id
+                    gateway_result.chunks, scope_decision.validated_scope, trace_id
                 )
             except RetrievedChunkValidationError as e:
                 self._emit_failed_trace(
@@ -235,9 +236,9 @@ class RetrieveUseCase:
             )
 
     def _post_validate_chunks(
-        self, chunks: list[RetrievedChunk], request_scope, trace_id: str
+        self, chunks: list[RetrievedChunk], validated_scope: RetrievalScope, trace_id: str
     ) -> None:
-        """Validate returned chunks have required metadata and match scope."""
+        """Validate returned chunks have required metadata and match validated scope."""
         required_fields = [
             "service_name",
             "tenant_id",
@@ -256,28 +257,72 @@ class RetrieveUseCase:
                     details={"chunk_index": i, "missing_fields": missing_fields},
                 )
 
-            # Check scope compliance
-            if chunk.metadata["service_name"] != request_scope.service_name:
+            # Check scope compliance - service_name and tenant_id
+            if chunk.metadata["service_name"] != validated_scope.service_name:
                 raise RetrievedChunkValidationError(
                     trace_id=trace_id,
-                    internal_message=f"Chunk {i} service_name '{chunk.metadata['service_name']}' does not match request scope '{request_scope.service_name}'",
+                    internal_message=f"Chunk {i} service_name '{chunk.metadata['service_name']}' does not match validated scope '{validated_scope.service_name}'",
                     details={
                         "chunk_index": i,
                         "chunk_service_name": chunk.metadata["service_name"],
-                        "scope_service_name": request_scope.service_name,
+                        "scope_service_name": validated_scope.service_name,
                     },
                 )
 
-            if chunk.metadata["tenant_id"] != request_scope.tenant_id:
+            if chunk.metadata["tenant_id"] != validated_scope.tenant_id:
                 raise RetrievedChunkValidationError(
                     trace_id=trace_id,
-                    internal_message=f"Chunk {i} tenant_id '{chunk.metadata['tenant_id']}' does not match request scope '{request_scope.tenant_id}'",
+                    internal_message=f"Chunk {i} tenant_id '{chunk.metadata['tenant_id']}' does not match validated scope '{validated_scope.tenant_id}'",
                     details={
                         "chunk_index": i,
                         "chunk_tenant_id": chunk.metadata["tenant_id"],
-                        "scope_tenant_id": request_scope.tenant_id,
+                        "scope_tenant_id": validated_scope.tenant_id,
                     },
                 )
+
+            # Check collection membership
+            chunk_collection = chunk.metadata["collection"]
+            if chunk_collection not in validated_scope.collections:
+                raise RetrievedChunkValidationError(
+                    trace_id=trace_id,
+                    internal_message=f"Chunk {i} collection '{chunk_collection}' is not in validated scope collections {validated_scope.collections}",
+                    details={
+                        "chunk_index": i,
+                        "chunk_collection": chunk_collection,
+                        "scope_collections": validated_scope.collections,
+                    },
+                )
+
+            # Check filter constraints
+            for field, constraint_value in validated_scope.filters.items():
+                chunk_value = chunk.metadata.get(field)
+
+                # Support primitive equality: field == value
+                if not isinstance(constraint_value, list):
+                    if chunk_value != constraint_value:
+                        raise RetrievedChunkValidationError(
+                            trace_id=trace_id,
+                            internal_message=f"Chunk {i} filter constraint failed: {field}={chunk_value} does not match required value {constraint_value}",
+                            details={
+                                "chunk_index": i,
+                                "filter_field": field,
+                                "chunk_value": chunk_value,
+                                "required_value": constraint_value,
+                            },
+                        )
+                # Support list membership: field IN [values]
+                else:
+                    if chunk_value not in constraint_value:
+                        raise RetrievedChunkValidationError(
+                            trace_id=trace_id,
+                            internal_message=f"Chunk {i} filter constraint failed: {field}={chunk_value} is not in allowed values {constraint_value}",
+                            details={
+                                "chunk_index": i,
+                                "filter_field": field,
+                                "chunk_value": chunk_value,
+                                "allowed_values": constraint_value,
+                            },
+                        )
 
     def _build_request_summary(
         self, original_query: str, normalized_query: str, request: RetrieveRequest
