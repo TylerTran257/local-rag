@@ -6,8 +6,6 @@ from app.retrieval import (
     EffectiveRetrieveRequest,
     RetrievalScope,
     RetrievalMode,
-    ScopeDecision,
-    RetrievedChunk,
     WarningCode,
     WarningSeverity,
     NoIndexedCorpusError,
@@ -64,17 +62,12 @@ def effective_request():
         collections=["documents"],
         filters={}
     )
-    scope_decision = ScopeDecision(
-        validated_scope=scope,
-        policy_name="PassthroughScopePolicy",
-        warnings=[]
-    )
     return EffectiveRetrieveRequest(
         normalized_query="test query",
         original_query="test query",
         retrieval_mode=RetrievalMode.DENSE,
         limit=5,
-        validated_scope=scope_decision,
+        validated_scope=scope,
         correlation_id=None
     )
 
@@ -121,6 +114,8 @@ def test_lexical_mode_calls_retrieve_context_lexical(adapter, stub_document_serv
 
     assert len(stub_document_service.calls) == 1
     assert stub_document_service.calls[0][0] == "lexical"
+    assert result.chunks[0].retrieval_mode == RetrievalMode.LEXICAL
+    assert result.chunks[0].rank == 1
 
 
 def test_hybrid_mode_calls_retrieve_context_hybrid(adapter, stub_document_service, effective_request):
@@ -139,6 +134,8 @@ def test_hybrid_mode_calls_retrieve_context_hybrid(adapter, stub_document_servic
 
     assert len(stub_document_service.calls) == 1
     assert stub_document_service.calls[0][0] == "hybrid"
+    assert result.chunks[0].retrieval_mode == RetrievalMode.HYBRID
+    assert result.chunks[0].rank == 1
 
 
 # Test: Result normalization to RetrievedChunk with sentinel defaults
@@ -159,8 +156,12 @@ def test_maps_document_service_result_to_retrieved_chunk_with_sentinel_defaults(
     chunk = result.chunks[0]
 
     # Check content and score mapping
+    assert chunk.chunk_id == "doc-123:5"
+    assert chunk.document_id == "doc-123"
     assert chunk.content == "chunk content here"
     assert chunk.score == 0.87
+    assert chunk.rank == 1
+    assert chunk.retrieval_mode == RetrievalMode.DENSE
 
     # Check metadata fields from DocumentService
     assert chunk.metadata["document_id"] == "doc-123"
@@ -195,6 +196,10 @@ def test_returns_multiple_chunks_with_sentinel_defaults(adapter, stub_document_s
     result = adapter.retrieve(effective_request)
 
     assert len(result.chunks) == 2
+    assert result.chunks[0].chunk_id == "doc-1:0"
+    assert result.chunks[0].rank == 1
+    assert result.chunks[1].chunk_id == "doc-2:1"
+    assert result.chunks[1].rank == 2
     assert result.chunks[0].metadata["service_name"] == "local-rag"
     assert result.chunks[1].metadata["service_name"] == "local-rag"
 
@@ -227,6 +232,10 @@ def test_emits_single_legacy_metadata_defaulted_warning_with_chunk_count(adapter
     assert warning.source == "LegacyDocumentRetrievalAdapter"
     assert "2" in warning.message
     assert warning.details["chunk_count"] == 2
+    assert warning.details["service_name"] == "local-rag"
+    assert warning.details["tenant_id"] == "default"
+    assert warning.details["collection"] == "documents"
+    assert warning.details["source_type"] == "document"
 
 
 # Test: Exception translation

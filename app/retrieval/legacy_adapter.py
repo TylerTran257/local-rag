@@ -72,7 +72,14 @@ class LegacyDocumentRetrievalAdapter:
                     details={"mode": str(request.retrieval_mode)}
                 )
 
-            chunks = [self._normalize_to_retrieved_chunk(d) for d in results]
+            chunks = [
+                self._normalize_to_retrieved_chunk(
+                    result_dict=d,
+                    rank=rank,
+                    retrieval_mode=request.retrieval_mode,
+                )
+                for rank, d in enumerate(results, start=1)
+            ]
 
             warnings = []
             if chunks:
@@ -119,7 +126,12 @@ class LegacyDocumentRetrievalAdapter:
                 details={"exception_type": type(e).__name__, "exception_message": str(e)}
             )
 
-    def _normalize_to_retrieved_chunk(self, result_dict: dict) -> RetrievedChunk:
+    def _normalize_to_retrieved_chunk(
+        self,
+        result_dict: dict,
+        rank: int,
+        retrieval_mode: RetrievalMode,
+    ) -> RetrievedChunk:
         """Normalize DocumentService dict result to RetrievedChunk with sentinel defaults.
 
         Args:
@@ -129,13 +141,20 @@ class LegacyDocumentRetrievalAdapter:
         Returns:
             RetrievedChunk with normalized metadata
         """
+        document_id = result_dict["document_id"]
+        chunk_index = result_dict["chunk_index"]
+
         return RetrievedChunk(
+            chunk_id=f"{document_id}:{chunk_index}",
+            document_id=document_id,
             content=result_dict["text"],
             score=result_dict["score"],
+            rank=rank,
+            retrieval_mode=retrieval_mode,
             metadata={
                 # From DocumentService
-                "document_id": result_dict["document_id"],
-                "chunk_index": result_dict["chunk_index"],
+                "document_id": document_id,
+                "chunk_index": chunk_index,
                 # Sentinel defaults (ADR 003)
                 "service_name": self.SENTINEL_SERVICE_NAME,
                 "tenant_id": self.SENTINEL_TENANT_ID,
