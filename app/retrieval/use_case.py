@@ -37,6 +37,7 @@ class RetrieveResult:
     """Result from RetrieveUseCase.execute()."""
     chunks: list[RetrievedChunk]
     warnings: list[RetrievalWarning]
+    trace_id: str | None = None
 
 
 class RetrieveUseCase:
@@ -202,6 +203,7 @@ class RetrieveUseCase:
             return RetrieveResult(
                 chunks=gateway_result.chunks,
                 warnings=all_warnings,
+                trace_id=trace_id,
             )
 
         except RetrievalError:

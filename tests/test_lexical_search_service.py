@@ -72,8 +72,7 @@ class TestSchemaAndMigration:
             assert "collection" in schema_text
             assert "source_type" in schema_text
             assert "source_label" in schema_text
-            assert "style_category" in schema_text
-            assert "platform" in schema_text
+            assert "domain_metadata" in schema_text
             assert "UNINDEXED" in schema_text
 
     def test_schema_migration_from_old_table(self):
@@ -115,8 +114,7 @@ class TestSchemaAndMigration:
             schema_text = "" if schema is None else str(schema)
             assert "service_name" in schema_text
             assert "tenant_id" in schema_text
-            assert "style_category" in schema_text
-            assert "platform" in schema_text
+            assert "domain_metadata" in schema_text
 
 
 class TestMetadataStorage:
@@ -170,8 +168,9 @@ class TestMetadataStorage:
             assert result["collection"] == "documents"
             assert result["source_type"] == "pdf"
             assert result["source_label"] == "test-document.pdf"
-            assert result["style_category"] is None
-            assert result["platform"] is None
+            # No domain metadata was stored, so no domain keys appear
+            assert "style_category" not in result
+            assert "platform" not in result
 
     def test_domain_metadata_round_trip_and_filtering(self, lexical_service, sample_chunks, sample_metadata):
         """Style metadata survives lexical indexing and can be filtered."""
@@ -586,3 +585,262 @@ class TestSQLInjectionProtection:
         # Should only return legitimate matches
         assert len(results) == 1
         assert results[0]["collection"] == "docs"
+
+    def test_malicious_filter_key_rejected(self, lexical_service, sample_chunks):
+        """Filter keys are validated, not interpolated into SQL."""
+        lexical_service.index_document_chunks(
+            document_id="doc-1",
+            original_filename="test.txt",
+            chunks=[sample_chunks[0]],
+            metadata={
+                "service_name": "service-1",
+                "tenant_id": "tenant-1",
+                "collection": "docs",
+                "source_type": "pdf",
+                "source_label": "doc1.pdf",
+            },
+        )
+
+        with pytest.raises(ValueError, match="Invalid filter key"):
+            lexical_service.search(
+                query="programming",
+                limit=10,
+                filters={"collection != 'x' OR service_name": "service-1"},
+            )
+
+
+class TestDomainMetadata:
+    """Tests for domain metadata storage and filtering via the JSON column."""
+
+    def test_domain_metadata_round_trip(self, lexical_service, sample_chunks, sample_metadata):
+        """Arbitrary domain metadata survives index -> search round-trip."""
+        enriched = {**sample_metadata, "patient_id": "p-42", "department": "cardiology"}
+        lexical_service.index_document_chunks(
+            document_id="doc-1",
+            original_filename="test.txt",
+            chunks=sample_chunks,
+            metadata=enriched,
+        )
+
+        results = lexical_service.search(query="programming", limit=10)
+
+        assert len(results) == 2
+        for result in results:
+            assert result["patient_id"] == "p-42"
+            assert result["department"] == "cardiology"
+
+    def test_filter_by_domain_metadata_field(self, lexical_service, sample_chunks, sample_metadata):
+        """Filtering on a domain metadata key uses the JSON column."""
+        lexical_service.index_document_chunks(
+            document_id="doc-1",
+            original_filename="a.txt",
+            chunks=[sample_chunks[0]],
+            metadata={**sample_metadata, "patient_id": "p-1"},
+        )
+        lexical_service.index_document_chunks(
+            document_id="doc-2",
+            original_filename="b.txt",
+            chunks=[sample_chunks[1]],
+            metadata={**sample_metadata, "patient_id": "p-2"},
+        )
+
+        results = lexical_service.search(
+            query="programming",
+            limit=10,
+            filters={"patient_id": "p-1"},
+        )
+
+        assert len(results) == 1
+        assert results[0]["patient_id"] == "p-1"
+
+    def test_filter_by_domain_metadata_list(self, lexical_service, sample_chunks, sample_metadata):
+        """List filtering on a domain metadata key uses a JSON IN clause."""
+        lexical_service.index_document_chunks(
+            document_id="doc-1",
+            original_filename="a.txt",
+            chunks=[sample_chunks[0]],
+            metadata={**sample_metadata, "style_category": "voice_rules"},
+        )
+        lexical_service.index_document_chunks(
+            document_id="doc-2",
+            original_filename="b.txt",
+            chunks=[sample_chunks[1]],
+            metadata={**sample_metadata, "style_category": "avoid_rules"},
+        )
+
+        results = lexical_service.search(
+            query="programming",
+            limit=10,
+            filters={"style_category": ["voice_rules", "avoid_rules"]},
+        )
+
+        assert len(results) == 2
+
+    def test_domain_filter_excludes_chunks_without_domain_metadata(
+        self, lexical_service, sample_chunks, sample_metadata
+    ):
+        """Chunks lacking the domain field are excluded by a domain filter (fail closed)."""
+        lexical_service.index_document_chunks(
+            document_id="doc-1",
+            original_filename="a.txt",
+            chunks=[sample_chunks[0]],
+            metadata=sample_metadata,
+        )
+
+        results = lexical_service.search(
+            query="programming",
+            limit=10,
+            filters={"patient_id": "p-1"},
+        )
+
+        assert len(results) == 0
+
+    def test_domain_metadata_does_not_override_core_fields(
+        self, lexical_service, sample_chunks, sample_metadata
+    ):
+        """Domain keys colliding with result keys do not overwrite them."""
+        lexical_service.index_document_chunks(
+            document_id="doc-1",
+            original_filename="a.txt",
+            chunks=[sample_chunks[0]],
+            metadata={**sample_metadata, "score": "bogus", "text": "bogus"},
+        )
+
+        results = lexical_service.search(query="programming", limit=10)
+
+        assert len(results) == 1
+        assert results[0]["text"] == sample_chunks[0].text
+        assert results[0]["score"] != "bogus"
+
+
+class TestFailClosedFilters:
+    """Tests that malformed filters fail closed instead of widening scope."""
+
+    def test_empty_collections_filter_raises(self, lexical_service, sample_chunks, sample_metadata):
+        lexical_service.index_document_chunks(
+            document_id="doc-1",
+            original_filename="a.txt",
+            chunks=[sample_chunks[0]],
+            metadata=sample_metadata,
+        )
+
+        with pytest.raises(ValueError, match="must be non-empty"):
+            lexical_service.search(query="programming", limit=10, filters={"collections": []})
+
+    def test_empty_list_filter_raises(self, lexical_service, sample_chunks, sample_metadata):
+        lexical_service.index_document_chunks(
+            document_id="doc-1",
+            original_filename="a.txt",
+            chunks=[sample_chunks[0]],
+            metadata=sample_metadata,
+        )
+
+        with pytest.raises(ValueError, match="must be non-empty"):
+            lexical_service.search(query="programming", limit=10, filters={"source_type": []})
+
+
+class TestPerChunkMetadata:
+    """Tests for per-chunk metadata lists."""
+
+    def test_per_chunk_metadata_stored_individually(self, lexical_service, sample_chunks):
+        """A metadata list applies each entry to its corresponding chunk."""
+        metadata_list = [
+            {
+                "service_name": "svc",
+                "tenant_id": "tenant-a",
+                "collection": "docs",
+                "source_type": "pdf",
+                "source_label": "a.pdf",
+            },
+            {
+                "service_name": "svc",
+                "tenant_id": "tenant-b",
+                "collection": "docs",
+                "source_type": "pdf",
+                "source_label": "b.pdf",
+            },
+        ]
+
+        lexical_service.index_document_chunks(
+            document_id="doc-1",
+            original_filename="mixed.txt",
+            chunks=sample_chunks,
+            metadata=metadata_list,
+        )
+
+        tenant_a_results = lexical_service.search(
+            query="programming", limit=10, filters={"tenant_id": "tenant-a"}
+        )
+        tenant_b_results = lexical_service.search(
+            query="programming", limit=10, filters={"tenant_id": "tenant-b"}
+        )
+
+        assert len(tenant_a_results) == 1
+        assert tenant_a_results[0]["source_label"] == "a.pdf"
+        assert len(tenant_b_results) == 1
+        assert tenant_b_results[0]["source_label"] == "b.pdf"
+
+    def test_metadata_list_length_mismatch_raises(self, lexical_service, sample_chunks):
+        with pytest.raises(ValueError, match="metadata length must match"):
+            lexical_service.index_document_chunks(
+                document_id="doc-1",
+                original_filename="mixed.txt",
+                chunks=sample_chunks,
+                metadata=[{"service_name": "svc"}],
+            )
+
+
+class TestMigrationFromIntermediateSchema:
+    """Migration from the schema that hardcoded style_category/platform columns."""
+
+    def test_migrates_hardcoded_domain_column_schema(self):
+        with SessionLocal() as session:
+            session.execute(text("DROP TABLE IF EXISTS document_chunks_fts"))
+            session.execute(text("""
+                CREATE VIRTUAL TABLE document_chunks_fts USING fts5(
+                    document_chunk_id UNINDEXED,
+                    document_id UNINDEXED,
+                    chunk_index UNINDEXED,
+                    original_filename UNINDEXED,
+                    service_name UNINDEXED,
+                    tenant_id UNINDEXED,
+                    collection UNINDEXED,
+                    source_type UNINDEXED,
+                    source_label UNINDEXED,
+                    style_category UNINDEXED,
+                    platform UNINDEXED,
+                    text
+                )
+            """))
+            session.commit()
+
+        LexicalSearchService(session_factory=SessionLocal)
+
+        with SessionLocal() as session:
+            result = session.execute(
+                text("SELECT sql FROM sqlite_master WHERE name = 'document_chunks_fts'")
+            )
+            schema_text = str(result.scalar())
+            assert "domain_metadata" in schema_text
+            assert "style_category" not in schema_text
+
+        with SessionLocal() as session:
+            session.execute(text("DROP TABLE IF EXISTS document_chunks_fts"))
+            session.commit()
+
+
+class TestHasIndexedChunks:
+    """Tests for the lexical corpus presence check."""
+
+    def test_empty_index_reports_no_chunks(self, lexical_service):
+        assert lexical_service.has_indexed_chunks() is False
+
+    def test_indexed_chunks_detected(self, lexical_service, sample_chunks, sample_metadata):
+        lexical_service.index_document_chunks(
+            document_id="doc-1",
+            original_filename="a.txt",
+            chunks=sample_chunks,
+            metadata=sample_metadata,
+        )
+
+        assert lexical_service.has_indexed_chunks() is True

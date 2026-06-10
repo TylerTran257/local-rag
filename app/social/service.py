@@ -65,10 +65,8 @@ class SocialStyleRetrievalService:
 
             chunks_by_category[category] = retrieve_result.chunks
             all_warnings.extend(retrieve_result.warnings)
-
-            # Extract trace_id from retrieve_result if available
-            # (This would come from the actual result if we had trace propagation)
-            # For now we'll add a placeholder - the mapper will handle it
+            if retrieve_result.trace_id is not None:
+                trace_ids.append(retrieve_result.trace_id)
 
         # Map results to style context
         context = self.mapper.map_to_context(

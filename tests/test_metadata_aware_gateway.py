@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import Mock
 
 from app.retrieval.contracts import RetrievalGateway
+from app.retrieval.errors import NoIndexedCorpusError, RetrievalExecutionError
 from app.retrieval.metadata_gateway import MetadataAwareRetrievalGateway
 from app.retrieval.types import (
     EffectiveRetrieveRequest,
@@ -365,3 +366,67 @@ class TestFilterTranslation:
         scope = call_args[0]
         assert scope.filters["author"] == "John Doe"
         assert scope.filters["tags"] == ["important", "urgent"]
+
+
+class TestErrorTranslation:
+    """Tests for gateway error translation to domain errors."""
+
+    def test_empty_vector_corpus_raises_no_indexed_corpus_for_dense(
+        self, gateway, effective_request, mock_vector_store
+    ):
+        mock_vector_store.has_indexed_chunks.return_value = False
+
+        with pytest.raises(NoIndexedCorpusError):
+            gateway.retrieve(effective_request)
+
+    def test_empty_lexical_corpus_raises_no_indexed_corpus_for_lexical(
+        self, gateway, effective_request, mock_lexical_search
+    ):
+        effective_request.retrieval_mode = RetrievalMode.LEXICAL
+        mock_lexical_search.has_indexed_chunks.return_value = False
+
+        with pytest.raises(NoIndexedCorpusError):
+            gateway.retrieve(effective_request)
+
+    def test_hybrid_succeeds_when_one_backend_has_content(
+        self, gateway, effective_request, mock_vector_store, mock_lexical_search
+    ):
+        """Hybrid only fails when both backends are empty."""
+        effective_request.retrieval_mode = RetrievalMode.HYBRID
+        mock_vector_store.has_indexed_chunks.return_value = False
+        mock_lexical_search.has_indexed_chunks.return_value = True
+        mock_vector_store.search.return_value = []
+
+        result = gateway.retrieve(effective_request)
+
+        assert len(result.chunks) > 0
+
+    def test_hybrid_raises_when_both_backends_empty(
+        self, gateway, effective_request, mock_vector_store, mock_lexical_search
+    ):
+        effective_request.retrieval_mode = RetrievalMode.HYBRID
+        mock_vector_store.has_indexed_chunks.return_value = False
+        mock_lexical_search.has_indexed_chunks.return_value = False
+
+        with pytest.raises(NoIndexedCorpusError):
+            gateway.retrieve(effective_request)
+
+    def test_backend_exception_wrapped_in_retrieval_execution_error(
+        self, gateway, effective_request, mock_vector_store
+    ):
+        mock_vector_store.search.side_effect = RuntimeError("qdrant down")
+
+        with pytest.raises(RetrievalExecutionError) as exc_info:
+            gateway.retrieve(effective_request)
+
+        assert "qdrant down" in exc_info.value.internal_message
+        assert exc_info.value.details["exception_type"] == "RuntimeError"
+
+    def test_lexical_filter_error_wrapped_in_retrieval_execution_error(
+        self, gateway, effective_request, mock_lexical_search
+    ):
+        effective_request.retrieval_mode = RetrievalMode.LEXICAL
+        mock_lexical_search.search.side_effect = ValueError("Invalid filter key: 'x y'")
+
+        with pytest.raises(RetrievalExecutionError):
+            gateway.retrieve(effective_request)

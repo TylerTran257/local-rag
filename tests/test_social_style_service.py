@@ -262,6 +262,25 @@ class TestSocialStyleRetrievalService:
         call_args = mock_retrieve_use_case.execute.call_args[0][0]
         assert call_args.retrieval_mode == RetrievalMode.HYBRID
 
+    def test_collects_trace_ids_from_each_retrieval(
+        self, social_service, mock_retrieve_use_case
+    ):
+        """Trace IDs from all per-category retrievals are collected."""
+        mock_retrieve_use_case.execute.side_effect = [
+            RetrieveResult(chunks=[], warnings=[], trace_id="trace-1"),
+            RetrieveResult(chunks=[], warnings=[], trace_id="trace-2"),
+        ]
+
+        request = StyleRetrievalRequest(
+            tenant_id="tenant-1",
+            query="test",
+            style_categories=[StyleCategory.VOICE_RULES, StyleCategory.HOOK_PATTERNS],
+        )
+
+        context = social_service.retrieve(request)
+
+        assert context.trace_ids == ["trace-1", "trace-2"]
+
 
 class TestStyleResponseMapper:
     """Tests for StyleResponseMapper."""

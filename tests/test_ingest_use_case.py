@@ -195,6 +195,68 @@ class TestIngestChunks:
         with pytest.raises(MetadataValidationError):
             ingest_use_case.ingest_chunks(chunks)
 
+    def test_ingest_chunks_validates_every_chunk(
+        self, ingest_use_case, mock_vector_store, mock_lexical_search, valid_metadata
+    ):
+        """An invalid chunk anywhere in the batch fails before any indexing."""
+        chunks = [
+            IngestChunk(chunk_id="chunk-1", text="Valid", **valid_metadata),
+            IngestChunk(
+                chunk_id="chunk-2",
+                text="Invalid",
+                service_name="service-1",
+                tenant_id="",  # Invalid, but not the first chunk
+                collection="docs",
+                source_type="pdf",
+                source_label="test.pdf",
+            ),
+        ]
+
+        with pytest.raises(MetadataValidationError):
+            ingest_use_case.ingest_chunks(chunks)
+
+        assert not mock_vector_store.upsert_document_chunks.called
+        assert not mock_lexical_search.index_document_chunks.called
+
+    def test_ingest_chunks_preserves_per_chunk_metadata(
+        self, ingest_use_case, mock_vector_store, mock_lexical_search, valid_metadata
+    ):
+        """Chunks with differing metadata keep their own metadata (no broadcast)."""
+        chunks = [
+            IngestChunk(
+                chunk_id="chunk-a",
+                text="Tenant A content",
+                service_name="svc",
+                tenant_id="tenant-a",
+                collection="docs",
+                source_type="pdf",
+                source_label="a.pdf",
+            ),
+            IngestChunk(
+                chunk_id="chunk-b",
+                text="Tenant B content",
+                service_name="svc",
+                tenant_id="tenant-b",
+                collection="docs",
+                source_type="pdf",
+                source_label="b.pdf",
+            ),
+        ]
+
+        result = ingest_use_case.ingest_chunks(chunks)
+
+        assert result.chunk_count == 2
+
+        stored_vector_metadata = mock_vector_store.upsert_document_chunks.call_args.kwargs["metadata"]
+        stored_lexical_metadata = mock_lexical_search.index_document_chunks.call_args.kwargs["metadata"]
+
+        for stored in (stored_vector_metadata, stored_lexical_metadata):
+            assert isinstance(stored, list)
+            assert stored[0]["tenant_id"] == "tenant-a"
+            assert stored[1]["tenant_id"] == "tenant-b"
+            assert stored[0]["source_label"] == "a.pdf"
+            assert stored[1]["source_label"] == "b.pdf"
+
     def test_ingest_empty_chunk_list(
         self, ingest_use_case, mock_embedding_service, mock_vector_store, mock_lexical_search
     ):

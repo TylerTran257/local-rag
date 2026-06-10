@@ -132,9 +132,12 @@ class IngestUseCase:
             logger.info("event=ingest_chunks_completed chunk_count=0 reason=empty_input")
             return IngestResult(chunk_count=0)
 
-        # Validate metadata from first chunk (all chunks should have same metadata)
-        first_chunk = chunks[0]
-        validated_metadata = self._validate_and_prepare_metadata(first_chunk)
+        # Validate every chunk's metadata before any indexing (fail fast),
+        # and keep metadata per chunk - chunks in a batch may differ.
+        metadata_dicts = [
+            self._metadata_to_dict(self._validate_and_prepare_metadata(chunk))
+            for chunk in chunks
+        ]
 
         # Generate document ID for this batch
         document_id = str(uuid4())
@@ -152,9 +155,9 @@ class IngestUseCase:
         # Embed, store, and return result
         return self._embed_and_store(
             document_id=document_id,
-            original_filename=first_chunk.source_label,
+            original_filename=chunks[0].source_label,
             chunks=document_chunks,
-            metadata_dict=self._metadata_to_dict(validated_metadata),
+            metadata_dict=metadata_dicts,
         )
 
     def _validate_and_prepare_metadata(
@@ -196,9 +199,13 @@ class IngestUseCase:
         document_id: str,
         original_filename: str,
         chunks: list[DocumentChunk],
-        metadata_dict: dict,
+        metadata_dict: dict | list[dict],
     ) -> IngestResult:
-        """Embed chunks and store in both backends with metadata."""
+        """Embed chunks and store in both backends with metadata.
+
+        metadata_dict may be a single dict (applies to all chunks) or a list
+        of per-chunk dicts matching the chunk count.
+        """
         # Embed all chunks
         chunk_texts = [chunk.text for chunk in chunks]
         embeddings = self.embedding_service.embed_texts(chunk_texts)
@@ -220,11 +227,12 @@ class IngestUseCase:
             metadata=metadata_dict,
         )
 
+        first_metadata = metadata_dict[0] if isinstance(metadata_dict, list) else metadata_dict
         logger.info(
             "event=ingest_completed service_name=%s tenant_id=%s collection=%s chunk_count=%s",
-            metadata_dict["service_name"],
-            metadata_dict["tenant_id"],
-            metadata_dict["collection"],
+            first_metadata["service_name"],
+            first_metadata["tenant_id"],
+            first_metadata["collection"],
             len(chunks),
         )
 

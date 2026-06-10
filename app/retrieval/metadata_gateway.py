@@ -2,6 +2,11 @@
 import logging
 from typing import Any
 
+from app.retrieval.errors import (
+    NoIndexedCorpusError,
+    RetrievalError,
+    RetrievalExecutionError,
+)
 from app.retrieval.types import (
     EffectiveRetrieveRequest,
     RetrievalGatewayResult,
@@ -47,15 +52,65 @@ class MetadataAwareRetrievalGateway:
 
         Returns:
             RetrievalGatewayResult with normalized chunks, warnings, and diagnostics
+
+        Raises:
+            NoIndexedCorpusError: When the required backends have no indexed content
+            RetrievalExecutionError: When backend execution fails unexpectedly
         """
-        if request.retrieval_mode == RetrievalMode.DENSE:
-            return self._retrieve_dense(request)
-        elif request.retrieval_mode == RetrievalMode.LEXICAL:
-            return self._retrieve_lexical(request)
-        elif request.retrieval_mode == RetrievalMode.HYBRID:
-            return self._retrieve_hybrid(request)
-        else:
-            raise ValueError(f"Unsupported retrieval mode: {request.retrieval_mode}")
+        try:
+            self._check_corpus(request.retrieval_mode)
+
+            if request.retrieval_mode == RetrievalMode.DENSE:
+                return self._retrieve_dense(request)
+            elif request.retrieval_mode == RetrievalMode.LEXICAL:
+                return self._retrieve_lexical(request)
+            elif request.retrieval_mode == RetrievalMode.HYBRID:
+                return self._retrieve_hybrid(request)
+            else:
+                raise RetrievalExecutionError(
+                    trace_id="unknown",  # Will be set by RetrieveUseCase
+                    internal_message=f"Unsupported retrieval mode: {request.retrieval_mode}",
+                    details={"mode": str(request.retrieval_mode)},
+                )
+        except RetrievalError:
+            raise
+        except Exception as e:
+            raise RetrievalExecutionError(
+                trace_id="unknown",
+                internal_message=f"Backend execution failed: {str(e)}",
+                details={"exception_type": type(e).__name__, "exception_message": str(e)},
+            )
+
+    def _check_corpus(self, mode: RetrievalMode) -> None:
+        """Raise NoIndexedCorpusError when the backends required by the mode are empty.
+
+        Hybrid retrieval can serve results from either backend, so it only
+        fails when both are empty.
+        """
+        if mode == RetrievalMode.DENSE:
+            if not self.vector_store_service.has_indexed_chunks():
+                raise NoIndexedCorpusError(
+                    trace_id="unknown",
+                    internal_message="No indexed corpus available in vector backend",
+                    details={"backend": "vector"},
+                )
+        elif mode == RetrievalMode.LEXICAL:
+            if not self.lexical_search_service.has_indexed_chunks():
+                raise NoIndexedCorpusError(
+                    trace_id="unknown",
+                    internal_message="No indexed corpus available in lexical backend",
+                    details={"backend": "lexical"},
+                )
+        elif mode == RetrievalMode.HYBRID:
+            if (
+                not self.vector_store_service.has_indexed_chunks()
+                and not self.lexical_search_service.has_indexed_chunks()
+            ):
+                raise NoIndexedCorpusError(
+                    trace_id="unknown",
+                    internal_message="No indexed corpus available in vector or lexical backend",
+                    details={"backend": "vector,lexical"},
+                )
 
     def _retrieve_dense(
         self, request: EffectiveRetrieveRequest
