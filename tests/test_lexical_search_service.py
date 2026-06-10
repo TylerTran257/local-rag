@@ -65,14 +65,16 @@ class TestSchemaAndMigration:
                 text("SELECT sql FROM sqlite_master WHERE name = 'document_chunks_fts'")
             )
             schema = result.scalar()
+            schema_text = "" if schema is None else str(schema)
 
-            assert schema is not None
-            assert "service_name" in schema
-            assert "tenant_id" in schema
-            assert "collection" in schema
-            assert "source_type" in schema
-            assert "source_label" in schema
-            assert "UNINDEXED" in schema
+            assert "service_name" in schema_text
+            assert "tenant_id" in schema_text
+            assert "collection" in schema_text
+            assert "source_type" in schema_text
+            assert "source_label" in schema_text
+            assert "style_category" in schema_text
+            assert "platform" in schema_text
+            assert "UNINDEXED" in schema_text
 
     def test_schema_migration_from_old_table(self):
         """Verify graceful migration from old FTS schema to new schema."""
@@ -110,8 +112,11 @@ class TestSchemaAndMigration:
                 text("SELECT sql FROM sqlite_master WHERE name = 'document_chunks_fts'")
             )
             schema = result.scalar()
-            assert "service_name" in schema
-            assert "tenant_id" in schema
+            schema_text = "" if schema is None else str(schema)
+            assert "service_name" in schema_text
+            assert "tenant_id" in schema_text
+            assert "style_category" in schema_text
+            assert "platform" in schema_text
 
 
 class TestMetadataStorage:
@@ -165,6 +170,33 @@ class TestMetadataStorage:
             assert result["collection"] == "documents"
             assert result["source_type"] == "pdf"
             assert result["source_label"] == "test-document.pdf"
+            assert result["style_category"] is None
+            assert result["platform"] is None
+
+    def test_domain_metadata_round_trip_and_filtering(self, lexical_service, sample_chunks, sample_metadata):
+        """Style metadata survives lexical indexing and can be filtered."""
+        enriched_metadata = {
+            **sample_metadata,
+            "style_category": "voice_rules",
+            "platform": "twitter",
+        }
+        lexical_service.index_document_chunks(
+            document_id="doc-1",
+            original_filename="test.txt",
+            chunks=sample_chunks,
+            metadata=enriched_metadata,
+        )
+
+        filtered_results = lexical_service.search(
+            query="programming",
+            limit=10,
+            filters={"style_category": "voice_rules", "platform": "twitter"},
+        )
+
+        assert len(filtered_results) == 2
+        for result in filtered_results:
+            assert result["style_category"] == "voice_rules"
+            assert result["platform"] == "twitter"
 
     def test_index_chunks_without_metadata_uses_null(self, lexical_service, sample_chunks):
         """Verify backward compat: chunks without metadata use NULL."""
@@ -184,13 +216,16 @@ class TestMetadataStorage:
                 {"doc_id": "doc-1"},
             )
             row = result.fetchone()
+            if row is None:
+                pytest.fail("Expected indexed row")
+            row_values = tuple(row)
 
             # All metadata fields should be NULL
-            assert row[0] is None or row[0] == ""
-            assert row[1] is None or row[1] == ""
-            assert row[2] is None or row[2] == ""
-            assert row[3] is None or row[3] == ""
-            assert row[4] is None or row[4] == ""
+            assert row_values[0] is None or row_values[0] == ""
+            assert row_values[1] is None or row_values[1] == ""
+            assert row_values[2] is None or row_values[2] == ""
+            assert row_values[3] is None or row_values[3] == ""
+            assert row_values[4] is None or row_values[4] == ""
 
 
 class TestFilteredSearch:

@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -16,6 +17,7 @@ from qdrant_client.models import (
     VectorParams,
 )
 
+from app.db.models import DocumentChunk
 from app.ingest import MetadataValidator, ValidatedMetadata
 from app.retrieval.types import RetrievalScope
 from app.settings import settings
@@ -56,23 +58,32 @@ class VectorStoreService:
         self,
         document_id: str,
         original_filename: str,
-        chunks: list[str],
+        chunks: Sequence[str | DocumentChunk],
         embeddings: list[list[float]],
-        metadata: list[ValidatedMetadata | dict[str, Any]] | None = None,
+        metadata: Sequence[ValidatedMetadata | dict[str, Any]] | ValidatedMetadata | dict[str, Any] | None = None,
     ) -> None:
-        if metadata is not None and len(metadata) != len(chunks):
+        metadata_by_chunk: Sequence[ValidatedMetadata | dict[str, Any]] | None
+        if metadata is None:
+            metadata_by_chunk = None
+        elif isinstance(metadata, ValidatedMetadata) or isinstance(metadata, dict):
+            metadata_by_chunk = [metadata] * len(chunks)
+        else:
+            metadata_by_chunk = metadata
+
+        if metadata_by_chunk is not None and len(metadata_by_chunk) != len(chunks):
             raise ValueError("metadata length must match chunks length")
 
         points = []
         for index, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+            chunk_text = chunk if isinstance(chunk, str) else chunk.text
             payload = {
                 "document_id": document_id,
                 "original_filename": original_filename,
                 "chunk_index": index,
-                "text": chunk,
+                "text": chunk_text,
             }
-            if metadata is not None:
-                payload.update(self._build_metadata_payload(metadata[index]))
+            if metadata_by_chunk is not None:
+                payload.update(self._build_metadata_payload(metadata_by_chunk[index]))
 
             points.append(
                 PointStruct(

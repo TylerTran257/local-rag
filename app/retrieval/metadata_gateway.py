@@ -231,14 +231,7 @@ class MetadataAwareRetrievalGateway:
             score=result["score"],
             rank=rank,
             retrieval_mode=RetrievalMode.DENSE,
-            metadata={
-                "service_name": result.get("service_name"),
-                "tenant_id": result.get("tenant_id"),
-                "collection": result.get("collection"),
-                "source_type": result.get("source_type"),
-                "source_label": result.get("source_label"),
-                "original_filename": result.get("original_filename"),
-            },
+            metadata=self._normalize_metadata(result),
         )
 
     def _normalize_lexical_result(self, result: dict, rank: int) -> RetrievedChunk:
@@ -250,14 +243,7 @@ class MetadataAwareRetrievalGateway:
             score=result["score"],
             rank=rank,
             retrieval_mode=RetrievalMode.LEXICAL,
-            metadata={
-                "service_name": result.get("service_name"),
-                "tenant_id": result.get("tenant_id"),
-                "collection": result.get("collection"),
-                "source_type": result.get("source_type"),
-                "source_label": result.get("source_label"),
-                "original_filename": result.get("original_filename"),
-            },
+            metadata=self._normalize_metadata(result),
         )
 
     def _normalize_hybrid_result(self, result: dict, rank: int) -> RetrievedChunk:
@@ -270,15 +256,23 @@ class MetadataAwareRetrievalGateway:
             score=result["score"],
             rank=rank,
             retrieval_mode=result.get("retrieval_mode", RetrievalMode.HYBRID),
-            metadata={
-                "service_name": result.get("service_name"),
-                "tenant_id": result.get("tenant_id"),
-                "collection": result.get("collection"),
-                "source_type": result.get("source_type"),
-                "source_label": result.get("source_label"),
-                "original_filename": result.get("original_filename"),
-            },
+            metadata=self._normalize_metadata(result),
         )
+
+    def _normalize_metadata(self, result: dict[str, Any]) -> dict[str, Any]:
+        """Preserve metadata fields returned by backends while excluding chunk payload fields."""
+        excluded_keys = {
+            "document_id",
+            "chunk_index",
+            "text",
+            "score",
+            "retrieval_mode",
+        }
+        return {
+            key: value
+            for key, value in result.items()
+            if key not in excluded_keys
+        }
 
     def _fuse_rankings_rrf(
         self, dense_results: list[dict], lexical_results: list[dict], limit: int
@@ -310,17 +304,9 @@ class MetadataAwareRetrievalGateway:
                 existing = fused_by_key.get(key)
                 if existing is None:
                     fused_by_key[key] = {
-                        "document_id": result["document_id"],
-                        "original_filename": result.get("original_filename"),
-                        "chunk_index": result["chunk_index"],
-                        "text": result["text"],
+                        **result,
                         "score": rrf_score,
                         "retrieval_mode": mode,
-                        "service_name": result.get("service_name"),
-                        "tenant_id": result.get("tenant_id"),
-                        "collection": result.get("collection"),
-                        "source_type": result.get("source_type"),
-                        "source_label": result.get("source_label"),
                     }
                 else:
                     existing["score"] += rrf_score

@@ -23,6 +23,8 @@ CREATE VIRTUAL TABLE {FTS_TABLE_NAME} USING fts5(
     collection UNINDEXED,
     source_type UNINDEXED,
     source_label UNINDEXED,
+    style_category UNINDEXED,
+    platform UNINDEXED,
     text
 )
 """
@@ -47,7 +49,11 @@ class LexicalSearchService:
                 # Table doesn't exist, create with new schema
                 session.execute(text(NEW_SCHEMA_SQL))
                 session.commit()
-            elif "service_name" not in existing_schema:
+            elif (
+                "service_name" not in existing_schema
+                or "style_category" not in existing_schema
+                or "platform" not in existing_schema
+            ):
                 # Old schema exists, need to migrate
                 logger.info(
                     "event=fts_schema_migration action=recreating_table reason=old_schema_detected"
@@ -150,6 +156,8 @@ class LexicalSearchService:
         collection = metadata.get("collection") if metadata else None
         source_type = metadata.get("source_type") if metadata else None
         source_label = metadata.get("source_label") if metadata else None
+        style_category = metadata.get("style_category") if metadata else None
+        platform = metadata.get("platform") if metadata else None
 
         rows = [
             {
@@ -162,6 +170,8 @@ class LexicalSearchService:
                 "collection": collection,
                 "source_type": source_type,
                 "source_label": source_label,
+                "style_category": style_category,
+                "platform": platform,
                 "text": chunk.text,
             }
             for chunk in chunks
@@ -180,6 +190,8 @@ class LexicalSearchService:
                         collection,
                         source_type,
                         source_label,
+                        style_category,
+                        platform,
                         text
                     )
                     VALUES (
@@ -192,6 +204,8 @@ class LexicalSearchService:
                         :collection,
                         :source_type,
                         :source_label,
+                        :style_category,
+                        :platform,
                         :text
                     )
                 """),
@@ -260,6 +274,8 @@ class LexicalSearchService:
                     collection,
                     source_type,
                     source_label,
+                    style_category,
+                    platform,
                     text,
                     bm25({FTS_TABLE_NAME}) as score
                 FROM {FTS_TABLE_NAME}
@@ -282,6 +298,8 @@ class LexicalSearchService:
                 "collection": row["collection"],
                 "source_type": row["source_type"],
                 "source_label": row["source_label"],
+                "style_category": row["style_category"],
+                "platform": row["platform"],
                 "score": row["score"],
                 "text": row["text"],
             }

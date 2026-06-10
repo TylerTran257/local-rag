@@ -140,7 +140,9 @@ class TestIngestDocument:
         vector_call = mock_vector_store.upsert_document_chunks.call_args
         stored_metadata = vector_call.kwargs["metadata"]
         assert stored_metadata["service_name"] == "test-service"
-        assert stored_metadata.get("domain_metadata") == {"author": "John Doe", "category": "research"}
+        assert stored_metadata["author"] == "John Doe"
+        assert stored_metadata["category"] == "research"
+        assert "domain_metadata" not in stored_metadata
 
 
 class TestIngestChunks:

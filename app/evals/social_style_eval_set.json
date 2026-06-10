@@ -1,0 +1,150 @@
+{
+  "corpus_chunks": [
+    {
+      "chunk_id": "acme-linkedin-voice-1",
+      "tenant_id": "tenant-acme",
+      "platform": "linkedin",
+      "style_category": "voice_rules",
+      "source_label": "acme-linkedin-voice-guide",
+      "text": "Use a confident and practical tone for LinkedIn leadership posts."
+    },
+    {
+      "chunk_id": "globex-twitter-voice-1",
+      "tenant_id": "tenant-globex",
+      "platform": "twitter",
+      "style_category": "voice_rules",
+      "source_label": "globex-twitter-voice-guide",
+      "text": "Keep tweets punchy, direct, and slightly playful while staying credible."
+    },
+    {
+      "chunk_id": "acme-linkedin-hook-1",
+      "tenant_id": "tenant-acme",
+      "platform": "linkedin",
+      "style_category": "hook_patterns",
+      "source_label": "acme-linkedin-hook-patterns",
+      "text": "Open with a sharp point of view followed by a surprising lesson from the field."
+    },
+    {
+      "chunk_id": "globex-twitter-hook-1",
+      "tenant_id": "tenant-globex",
+      "platform": "twitter",
+      "style_category": "hook_patterns",
+      "source_label": "globex-twitter-hook-patterns",
+      "text": "Start with a bold question that turns into a one-line insight thread."
+    },
+    {
+      "chunk_id": "acme-linkedin-cta-1",
+      "tenant_id": "tenant-acme",
+      "platform": "linkedin",
+      "style_category": "cta_patterns",
+      "source_label": "acme-linkedin-cta-patterns",
+      "text": "End LinkedIn posts by inviting readers to compare their experience in comments."
+    },
+    {
+      "chunk_id": "globex-twitter-cta-1",
+      "tenant_id": "tenant-globex",
+      "platform": "twitter",
+      "style_category": "cta_patterns",
+      "source_label": "globex-twitter-cta-patterns",
+      "text": "Close tweets with a short nudge to bookmark or reply with their own example."
+    },
+    {
+      "chunk_id": "acme-linkedin-past-post-1",
+      "tenant_id": "tenant-acme",
+      "platform": "linkedin",
+      "style_category": "past_post_patterns",
+      "source_label": "acme-linkedin-past-post-patterns",
+      "text": "Top past LinkedIn posts paired a mini case study with one concrete framework."
+    },
+    {
+      "chunk_id": "globex-twitter-past-post-1",
+      "tenant_id": "tenant-globex",
+      "platform": "twitter",
+      "style_category": "past_post_patterns",
+      "source_label": "globex-twitter-past-post-patterns",
+      "text": "Best past tweets chained a bold claim with a fast three-beat breakdown."
+    },
+    {
+      "chunk_id": "acme-linkedin-avoid-1",
+      "tenant_id": "tenant-acme",
+      "platform": "linkedin",
+      "style_category": "avoid_rules",
+      "source_label": "acme-linkedin-avoid-rules",
+      "text": "Avoid hype phrases, vague inspiration, and emoji-heavy formatting on LinkedIn."
+    },
+    {
+      "chunk_id": "globex-twitter-avoid-1",
+      "tenant_id": "tenant-globex",
+      "platform": "twitter",
+      "style_category": "avoid_rules",
+      "source_label": "globex-twitter-avoid-rules",
+      "text": "Avoid corporate filler and long setup before the first insight in tweets."
+    },
+    {
+      "chunk_id": "acme-linkedin-offer-1",
+      "tenant_id": "tenant-acme",
+      "platform": "linkedin",
+      "style_category": "offer_positioning",
+      "source_label": "acme-linkedin-offer-positioning",
+      "text": "Position the offer as operational clarity for busy leaders, not generic coaching."
+    },
+    {
+      "chunk_id": "globex-twitter-offer-1",
+      "tenant_id": "tenant-globex",
+      "platform": "twitter",
+      "style_category": "offer_positioning",
+      "source_label": "globex-twitter-offer-positioning",
+      "text": "Frame the offer as a fast unfair advantage for solo operators shipping daily."
+    }
+  ],
+  "examples": [
+    {
+      "id": "acme-linkedin-voice",
+      "query": "linkedin voice for practical leadership posts",
+      "tenant_id": "tenant-acme",
+      "platform": "linkedin",
+      "target_categories": ["voice_rules"],
+      "expected_source_labels": ["acme-linkedin-voice-guide"]
+    },
+    {
+      "id": "globex-twitter-hooks",
+      "query": "twitter hook ideas for bold short threads",
+      "tenant_id": "tenant-globex",
+      "platform": "twitter",
+      "target_categories": ["hook_patterns"],
+      "expected_source_labels": ["globex-twitter-hook-patterns"]
+    },
+    {
+      "id": "acme-linkedin-cta",
+      "query": "linkedin call to action that invites discussion",
+      "tenant_id": "tenant-acme",
+      "platform": "linkedin",
+      "target_categories": ["cta_patterns"],
+      "expected_source_labels": ["acme-linkedin-cta-patterns"]
+    },
+    {
+      "id": "globex-twitter-past-post",
+      "query": "what past tweet formats worked best",
+      "tenant_id": "tenant-globex",
+      "platform": "twitter",
+      "target_categories": ["past_post_patterns"],
+      "expected_source_labels": ["globex-twitter-past-post-patterns"]
+    },
+    {
+      "id": "acme-linkedin-avoid",
+      "query": "what should acme avoid in linkedin posts",
+      "tenant_id": "tenant-acme",
+      "platform": "linkedin",
+      "target_categories": ["avoid_rules"],
+      "expected_source_labels": ["acme-linkedin-avoid-rules"]
+    },
+    {
+      "id": "globex-twitter-offer",
+      "query": "how should globex position the offer on twitter",
+      "tenant_id": "tenant-globex",
+      "platform": "twitter",
+      "target_categories": ["offer_positioning"],
+      "expected_source_labels": ["globex-twitter-offer-positioning"]
+    }
+  ]
+}

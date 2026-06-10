@@ -187,7 +187,7 @@ class IngestUseCase:
 
         # Include domain metadata if present
         if validated.domain_metadata:
-            metadata_dict["domain_metadata"] = validated.domain_metadata
+            metadata_dict.update(validated.domain_metadata)
 
         return metadata_dict
 

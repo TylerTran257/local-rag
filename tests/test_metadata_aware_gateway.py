@@ -25,6 +25,8 @@ def mock_vector_store():
             "collection": "docs",
             "source_type": "pdf",
             "source_label": "test.pdf",
+            "style_category": "voice_rules",
+            "platform": "twitter",
             "text": "Dense result 1",
             "score": 0.95,
         },
@@ -37,6 +39,8 @@ def mock_vector_store():
             "collection": "docs",
             "source_type": "pdf",
             "source_label": "test.pdf",
+            "style_category": "voice_rules",
+            "platform": "twitter",
             "text": "Dense result 2",
             "score": 0.85,
         },
@@ -57,6 +61,8 @@ def mock_lexical_search():
             "collection": "docs",
             "source_type": "pdf",
             "source_label": "test.pdf",
+            "style_category": "voice_rules",
+            "platform": "twitter",
             "text": "Lexical result 1",
             "score": -0.5,  # BM25 score
         },
@@ -69,6 +75,8 @@ def mock_lexical_search():
             "collection": "docs",
             "source_type": "pdf",
             "source_label": "other.pdf",
+            "style_category": "voice_rules",
+            "platform": "twitter",
             "text": "Lexical result 2",
             "score": -1.2,
         },
@@ -180,6 +188,13 @@ class TestDenseRetrieval:
         assert result.diagnostics["dense_candidate_count"] == 2
         assert result.diagnostics["filters_applied_by_dense"] is True
 
+    def test_dense_retrieval_preserves_domain_metadata(self, gateway, effective_request):
+        """Dense retrieval keeps backend domain metadata on the chunk."""
+        result = gateway.retrieve(effective_request)
+
+        assert result.chunks[0].metadata["style_category"] == "voice_rules"
+        assert result.chunks[0].metadata["platform"] == "twitter"
+
 
 class TestLexicalRetrieval:
     """Tests for lexical retrieval mode."""
@@ -234,6 +249,14 @@ class TestLexicalRetrieval:
         assert result.diagnostics["lexical_candidate_count"] == 2
         assert result.diagnostics["filters_applied_by_lexical"] is True
 
+    def test_lexical_retrieval_preserves_domain_metadata(self, gateway, effective_request):
+        """Lexical retrieval keeps backend domain metadata on the chunk."""
+        effective_request.retrieval_mode = RetrievalMode.LEXICAL
+        result = gateway.retrieve(effective_request)
+
+        assert result.chunks[0].metadata["style_category"] == "voice_rules"
+        assert result.chunks[0].metadata["platform"] == "twitter"
+
 
 class TestHybridRetrieval:
     """Tests for hybrid retrieval mode with RRF fusion."""
@@ -247,6 +270,13 @@ class TestHybridRetrieval:
 
         assert mock_vector_store.search.called
         assert mock_lexical_search.search.called
+
+    def test_hybrid_retrieval_preserves_domain_metadata(self, gateway, effective_request):
+        effective_request.retrieval_mode = RetrievalMode.HYBRID
+        result = gateway.retrieve(effective_request)
+
+        assert result.chunks[0].metadata["style_category"] == "voice_rules"
+        assert result.chunks[0].metadata["platform"] == "twitter"
 
     def test_hybrid_retrieval_applies_same_filters(
         self, gateway, effective_request, mock_vector_store, mock_lexical_search
