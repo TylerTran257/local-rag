@@ -3,6 +3,7 @@ import logging
 from fastapi import FastAPI
 
 from app.api.routes import (
+    answer_router,
     ask_router,
     chat_router,
     documents_router,
@@ -11,6 +12,7 @@ from app.api.routes import (
     ingest_router,
     jobs_router,
     pages_router,
+    retrieve_router,
     search_router,
     social_style_router,
     uploads_router,
@@ -151,5 +153,7 @@ def create_app(
         app.include_router(ingest_router)
         app.include_router(social_style_router)
         app.include_router(documents_v2_router)
+        app.include_router(retrieve_router)
+        app.include_router(answer_router)
 
     return app
