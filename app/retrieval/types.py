@@ -74,6 +74,8 @@ class ScopeDecision:
     validated_scope: RetrievalScope
     policy_name: str
     warnings: list[RetrievalWarning] = field(default_factory=list)
+    denied_collections: list[str] = field(default_factory=list)
+    enforced_filters: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
