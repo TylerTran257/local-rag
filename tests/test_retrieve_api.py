@@ -42,14 +42,11 @@ def client(mock_retrieve_use_case):
     mock_runtime = MetadataAwareRuntime(
         retrieve_use_case=mock_retrieve_use_case,
         ingest_use_case=Mock(),
-        social_style_service=Mock(),
         gateway=Mock(),
     )
 
     app = create_app(
-        document_service=Mock(),
         generation_service=Mock(),
-        metadata_aware=True,
         metadata_aware_runtime=mock_runtime,
     )
     return TestClient(app)

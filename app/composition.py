@@ -1,15 +1,12 @@
 """Centralized metadata-aware runtime composition factory.
 
 Constructs a fully-wired metadata-aware retrieval runtime consisting of
-RetrieveUseCase, IngestUseCase, and SocialStyleRetrievalService with all
-their dependencies.
+RetrieveUseCase and IngestUseCase with all their dependencies.
 
-This module centralizes the wiring that was previously duplicated in
-build_social_style_eval_runtime() and makes it reusable across
+This module centralizes the wiring and makes it reusable across
 create_app(), evals, and tests.
 """
 from dataclasses import dataclass
-from typing import Any
 
 from app.ingest.use_case import IngestUseCase
 from app.retrieval import (
@@ -29,21 +26,18 @@ from app.retrieval.use_case import RetrieveUseCase
 from app.services.embedding_service import EmbeddingService
 from app.services.lexical_search_service import LexicalSearchService
 from app.services.vector_store_service import VectorStoreService
-from app.social.service import SocialStyleRetrievalService
 
 
 @dataclass(frozen=True)
 class MetadataAwareRuntime:
     """Container for a fully-wired metadata-aware retrieval runtime.
 
-    Holds the three main use-case / service objects that routes and
-    higher-level code need, together with the gateway for introspection
-    and testing.
+    Holds the main use-case objects that routes and higher-level code need,
+    together with the gateway for introspection and testing.
     """
 
     retrieve_use_case: RetrieveUseCase
     ingest_use_case: IngestUseCase
-    social_style_service: SocialStyleRetrievalService
     gateway: MetadataAwareRetrievalGateway
 
 
@@ -60,8 +54,6 @@ def build_metadata_aware_runtime(
     clock: Clock | None = None,
     trace_id_generator: TraceIdGenerator | None = None,
     trace_sink: RetrievalTraceSink | None = None,
-    # Social style service config
-    social_style_service_name: str = "social-style",
 ) -> MetadataAwareRuntime:
     """Build a complete metadata-aware retrieval runtime.
 
@@ -72,7 +64,7 @@ def build_metadata_aware_runtime(
 
     Returns:
         A ``MetadataAwareRuntime`` dataclass with ``retrieve_use_case``,
-        ``ingest_use_case``, ``social_style_service``, and ``gateway``.
+        ``ingest_use_case``, and ``gateway``.
     """
     # --- Infrastructure services ---
     resolved_embedding = embedding_service or EmbeddingService()
@@ -107,15 +99,8 @@ def build_metadata_aware_runtime(
         lexical_search_service=resolved_lexical,
     )
 
-    # --- Social style service ---
-    social_style_service = SocialStyleRetrievalService(
-        retrieve_use_case=retrieve_use_case,
-        service_name=social_style_service_name,
-    )
-
     return MetadataAwareRuntime(
         retrieve_use_case=retrieve_use_case,
         ingest_use_case=ingest_use_case,
-        social_style_service=social_style_service,
         gateway=gateway,
     )
