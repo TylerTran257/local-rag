@@ -6,6 +6,7 @@ from app.api.routes import (
     ask_router,
     chat_router,
     documents_router,
+    documents_v2_router,
     health_router,
     ingest_router,
     jobs_router,
@@ -149,5 +150,6 @@ def create_app(
     if metadata_aware:
         app.include_router(ingest_router)
         app.include_router(social_style_router)
+        app.include_router(documents_v2_router)
 
     return app

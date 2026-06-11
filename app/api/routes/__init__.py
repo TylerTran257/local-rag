@@ -1,6 +1,7 @@
 from app.api.routes.ask import router as ask_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.documents import router as documents_router
+from app.api.routes.documents_v2 import router as documents_v2_router
 from app.api.routes.health import router as health_router
 from app.api.routes.ingest import router as ingest_router
 from app.api.routes.jobs import router as jobs_router
@@ -13,6 +14,7 @@ __all__ = [
     "ask_router",
     "chat_router",
     "documents_router",
+    "documents_v2_router",
     "health_router",
     "ingest_router",
     "jobs_router",
