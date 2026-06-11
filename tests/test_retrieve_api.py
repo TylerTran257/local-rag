@@ -120,3 +120,20 @@ class TestRetrieveEndpoint:
         response = client.post("/retrieve", json=payload)
 
         assert response.status_code == 422
+
+    def test_reserved_filter_keys_return_422(self, client, mock_retrieve_use_case):
+        """Filters must not be able to override scope-enforcement keys."""
+        for reserved_key in ["service_name", "tenant_id", "collection", "collections"]:
+            payload = {
+                "query": "test query",
+                "service_name": "test-service",
+                "tenant_id": "tenant-123",
+                "collections": ["documents"],
+                "filters": {reserved_key: "other-value"},
+            }
+
+            response = client.post("/retrieve", json=payload)
+
+            assert response.status_code == 422, f"filter key {reserved_key} was not rejected"
+
+        mock_retrieve_use_case.execute.assert_not_called()

@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import Mock, call
 
 from app.db.models import DocumentChunk
-from app.ingest.contracts import IngestDocument, IngestChunk, MetadataValidationError
+from app.ingest.contracts import EmptyDocumentError, IngestDocument, IngestChunk, MetadataValidationError
 from app.ingest.use_case import IngestUseCase, IngestResult
 
 
@@ -92,21 +92,35 @@ class TestIngestDocument:
         assert mock_vector_store.upsert_document_chunks.called
         assert mock_lexical_search.index_document_chunks.called
 
-    def test_ingest_document_with_empty_text(
+    def test_ingest_document_with_empty_text_is_rejected(
         self, ingest_use_case, mock_embedding_service, mock_vector_store, mock_lexical_search, valid_metadata
     ):
-        """Empty document produces zero chunks."""
+        """Empty document raises EmptyDocumentError before any indexing."""
         document = IngestDocument(
             text="",
             **valid_metadata,
         )
 
-        result = ingest_use_case.ingest_document(document)
+        with pytest.raises(EmptyDocumentError):
+            ingest_use_case.ingest_document(document)
 
-        assert result.chunk_count == 0
         assert not mock_embedding_service.embed_texts.called
         assert not mock_vector_store.upsert_document_chunks.called
         assert not mock_lexical_search.index_document_chunks.called
+
+    def test_ingest_document_with_whitespace_only_text_is_rejected(
+        self, ingest_use_case, mock_embedding_service, valid_metadata
+    ):
+        """Whitespace-only document raises EmptyDocumentError."""
+        document = IngestDocument(
+            text="   \n\t  ",
+            **valid_metadata,
+        )
+
+        with pytest.raises(EmptyDocumentError):
+            ingest_use_case.ingest_document(document)
+
+        assert not mock_embedding_service.embed_texts.called
 
     def test_ingest_document_validates_metadata(self, ingest_use_case):
         """Invalid metadata raises MetadataValidationError before indexing."""

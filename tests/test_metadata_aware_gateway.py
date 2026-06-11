@@ -224,6 +224,26 @@ class TestLexicalRetrieval:
         assert filters["collections"] == ["docs"]
         assert filters["source_type"] == "pdf"
 
+    def test_lexical_scope_keys_cannot_be_shadowed_by_filters(
+        self, gateway, effective_request, mock_lexical_search
+    ):
+        """Caller-supplied filters must not override scope-enforcement keys."""
+        effective_request.retrieval_mode = RetrievalMode.LEXICAL
+        effective_request.validated_scope.filters = {
+            "service_name": "other-service",
+            "tenant_id": "other-tenant",
+            "collections": ["other-collection"],
+            "topic": "databases",
+        }
+
+        gateway.retrieve(effective_request)
+
+        filters = mock_lexical_search.search.call_args.kwargs["filters"]
+        assert filters["service_name"] == "test-service"
+        assert filters["tenant_id"] == "tenant-1"
+        assert filters["collections"] == ["docs"]
+        assert filters["topic"] == "databases"
+
     def test_lexical_retrieval_normalizes_results(self, gateway, effective_request):
         """Lexical retrieval normalizes results to RetrievedChunk objects."""
         effective_request.retrieval_mode = RetrievalMode.LEXICAL

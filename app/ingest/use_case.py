@@ -6,6 +6,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.db.models import DocumentChunk
 from app.ingest.contracts import (
+    EmptyDocumentError,
     IngestChunk,
     IngestDocument,
     MetadataValidator,
@@ -17,7 +18,7 @@ from app.services.vector_store_service import VectorStoreService
 
 logger = logging.getLogger(__name__)
 
-# Use same chunking configuration as DocumentService
+# Internal chunking defaults (not exposed through the public API)
 text_splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=120)
 
 
@@ -37,9 +38,8 @@ class IngestUseCase:
     chunks (if needed), embeds, and stores in both vector and lexical
     backends with metadata.
 
-    This is a parallel ingestion path alongside DocumentService.
-    DocumentService handles the existing upload flow with sentinel defaults.
-    IngestUseCase handles service-ready ingestion with explicit metadata.
+    This is the single ingestion path for the service: both manual uploads
+    and service document ingestion flow through it.
     """
 
     def __init__(
@@ -67,30 +67,31 @@ class IngestUseCase:
 
         Raises:
             MetadataValidationError: If metadata validation fails
+            EmptyDocumentError: If the document text is empty or whitespace-only
         """
         # Validate metadata first (fail fast)
         validated_metadata = self._validate_and_prepare_metadata(document)
 
-        # Chunk the text
+        # Reject empty documents before any expensive processing
         if not document.text or not document.text.strip():
             logger.info(
-                "event=ingest_document_completed service_name=%s tenant_id=%s collection=%s chunk_count=0 reason=empty_text",
+                "event=ingest_document_rejected service_name=%s tenant_id=%s collection=%s reason=empty_text",
                 document.service_name,
                 document.tenant_id,
                 document.collection,
             )
-            return IngestResult(chunk_count=0)
+            raise EmptyDocumentError(source_label=document.source_label)
 
         chunk_texts = text_splitter.split_text(document.text)
 
         if not chunk_texts:
             logger.info(
-                "event=ingest_document_completed service_name=%s tenant_id=%s collection=%s chunk_count=0 reason=no_chunks_produced",
+                "event=ingest_document_rejected service_name=%s tenant_id=%s collection=%s reason=no_chunks_produced",
                 document.service_name,
                 document.tenant_id,
                 document.collection,
             )
-            return IngestResult(chunk_count=0)
+            raise EmptyDocumentError(source_label=document.source_label)
 
         # Generate document ID for this ingest operation
         document_id = str(uuid4())

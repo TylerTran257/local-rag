@@ -104,6 +104,19 @@ class TestDocumentUploadEndpoint:
         body = response.json()
         assert "Unsupported file type" in body["detail"]
 
+    def test_empty_file_returns_422(self, client, mock_ingest_use_case):
+        from app.ingest.contracts import EmptyDocumentError
+
+        mock_ingest_use_case.ingest_document.side_effect = EmptyDocumentError(
+            source_label="empty.txt"
+        )
+        files = {"file": ("empty.txt", io.BytesIO(b""), "text/plain")}
+
+        response = client.post("/documents/upload", files=files)
+
+        assert response.status_code == 422
+        assert "no text to ingest" in response.json()["detail"]
+
 
 class TestDocumentIngestEndpoint:
     """Tests for POST /documents/ingest."""
@@ -152,6 +165,26 @@ class TestDocumentIngestEndpoint:
         response = client.post("/documents/ingest", json=payload)
 
         assert response.status_code == 422
+
+    def test_whitespace_only_text_returns_422(self, client, mock_ingest_use_case):
+        from app.ingest.contracts import EmptyDocumentError
+
+        mock_ingest_use_case.ingest_document.side_effect = EmptyDocumentError(
+            source_label="test.pdf"
+        )
+        payload = {
+            "text": "   \n\t  ",  # Whitespace-only passes schema, rejected by use case
+            "service_name": "test-service",
+            "tenant_id": "tenant-123",
+            "collection": "documents",
+            "source_type": "pdf",
+            "source_label": "test.pdf",
+        }
+
+        response = client.post("/documents/ingest", json=payload)
+
+        assert response.status_code == 422
+        assert "no text to ingest" in response.json()["detail"]
 
     def test_domain_metadata_is_accepted(self, client, mock_ingest_use_case):
         payload = {

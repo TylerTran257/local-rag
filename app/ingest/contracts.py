@@ -55,6 +55,12 @@ class MetadataValidationError(ValueError):
         super().__init__(f"Invalid metadata fields: {', '.join(invalid_fields)}")
 
 
+class EmptyDocumentError(ValueError):
+    def __init__(self, source_label: str):
+        self.source_label = source_label
+        super().__init__(f"Document '{source_label}' contains no text to ingest")
+
+
 class MetadataValidator:
     @staticmethod
     def validate(metadata: dict[str, Any]) -> ValidatedMetadata:

@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.retrieval.types import RetrievalMode
 
 
 NonEmptyString = Annotated[str, Field(min_length=1)]
+
+# Scope-enforcement keys that request filters must not override
+RESERVED_FILTER_KEYS = frozenset({"service_name", "tenant_id", "collection", "collections"})
 
 
 class IngestDocumentRequest(BaseModel):
@@ -72,6 +75,17 @@ class RetrieveRequest(BaseModel):
     filters: dict[str, str] = Field(default_factory=dict)
     limit: int = Field(default=5, gt=0)
     mode: RetrievalMode = RetrievalMode.HYBRID
+
+    @field_validator("filters")
+    @classmethod
+    def filters_must_not_override_scope(cls, value: dict[str, str]) -> dict[str, str]:
+        reserved = RESERVED_FILTER_KEYS.intersection(value)
+        if reserved:
+            raise ValueError(
+                f"Filter keys {sorted(reserved)} are reserved for scope enforcement "
+                "and cannot be set through filters"
+            )
+        return value
 
 
 class RetrieveResponse(BaseModel):

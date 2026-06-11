@@ -257,15 +257,19 @@ class MetadataAwareRetrievalGateway:
         - collections: list of collections (special key mapped to "collection" field)
         - Additional scope.filters fields pass through
         """
+        reserved_keys = {"service_name", "tenant_id", "collections", "collection"}
+
         filters = {
             "service_name": scope.service_name,
             "tenant_id": scope.tenant_id,
             "collections": scope.collections,
         }
 
-        # Add any additional filters from scope
-        if scope.filters:
-            filters.update(scope.filters)
+        # Merge additional filters, never letting them shadow the
+        # scope-enforcement keys above
+        for key, value in (scope.filters or {}).items():
+            if key not in reserved_keys:
+                filters[key] = value
 
         return filters
 

@@ -6,7 +6,7 @@ from fastapi import APIRouter, File, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from app.api.schemas import DocumentIngestRequest, DocumentIngestResponse, DocumentUploadResponse
-from app.ingest.contracts import IngestDocument, MetadataValidationError
+from app.ingest.contracts import EmptyDocumentError, IngestDocument, MetadataValidationError
 from app.services.text_extractor import TextExtractor
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,12 @@ async def upload_document(request: Request, file: UploadFile = File(...)):
     (service_name=manual, tenant_id=local, collection=general), and
     ingests through the metadata-aware IngestUseCase.
     """
+    if not file.filename:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": "Uploaded file must have a filename"},
+        )
+
     # Save uploaded file to temp location for text extraction
     with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp_file:
         content = await file.read()
@@ -63,7 +69,7 @@ async def upload_document(request: Request, file: UploadFile = File(...)):
             },
         )
     except ValueError as e:
-        # Text extraction failures
+        # Text extraction failures and empty documents (EmptyDocumentError)
         return JSONResponse(
             status_code=422,
             content={
@@ -102,6 +108,11 @@ def ingest_document(request: Request, body: DocumentIngestRequest):
                 "detail": "Metadata validation failed",
                 "invalid_fields": e.invalid_fields,
             },
+        )
+    except EmptyDocumentError as e:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": str(e)},
         )
 
     return DocumentIngestResponse(chunk_count=result.chunk_count)
