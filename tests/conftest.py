@@ -146,9 +146,8 @@ def fake_generation_service():
 
 
 @pytest.fixture
-def client(fake_document_service, fake_generation_service):
+def client(fake_generation_service):
     app = create_app(
-        document_service=fake_document_service,
         generation_service=fake_generation_service,
     )
     return TestClient(app)

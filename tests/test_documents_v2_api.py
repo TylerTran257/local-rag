@@ -30,7 +30,7 @@ def fake_generation_service():
 
 
 @pytest.fixture
-def client(mock_ingest_use_case, fake_document_service, fake_generation_service):
+def client(mock_ingest_use_case, fake_generation_service):
     mock_runtime = MetadataAwareRuntime(
         retrieve_use_case=Mock(),
         ingest_use_case=mock_ingest_use_case,
