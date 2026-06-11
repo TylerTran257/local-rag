@@ -57,15 +57,28 @@ def _make_chunk(
 
 
 def _make_client(fake_use_case) -> TestClient:
+    from unittest.mock import Mock
+    from app.composition import MetadataAwareRuntime
+
     service = SocialStyleRetrievalService(
         retrieve_use_case=fake_use_case,
         service_name="social-style",
     )
+
+    # Create a minimal runtime with only the social style service
+    mock_runtime = MetadataAwareRuntime(
+        retrieve_use_case=Mock(),
+        ingest_use_case=Mock(),
+        social_style_service=service,
+        gateway=Mock(),
+    )
+
     app = create_app(
         document_service=_FakeDocService(),
         generation_service=_FakeGenService(),
+        metadata_aware=True,
+        metadata_aware_runtime=mock_runtime,
     )
-    app.state.social_style_service = service
     return TestClient(app)
 
 

@@ -45,16 +45,16 @@ class NamespacePolicy:
         service_collection_rules: dict[str, set[str]] | None = None,
         service_required_filters: dict[str, set[str]] | None = None,
     ):
-        self._allowed_collections = set(allowed_collections) if allowed_collections else None
-        self._allowed_services = set(allowed_services) if allowed_services else None
+        self._allowed_collections = set(allowed_collections) if allowed_collections is not None else None
+        self._allowed_services = set(allowed_services) if allowed_services is not None else None
         self._service_collection_rules = (
             {k: set(v) for k, v in service_collection_rules.items()}
-            if service_collection_rules
+            if service_collection_rules is not None
             else None
         )
         self._service_required_filters = (
             {k: set(v) for k, v in service_required_filters.items()}
-            if service_required_filters
+            if service_required_filters is not None
             else None
         )
 

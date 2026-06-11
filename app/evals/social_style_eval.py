@@ -340,7 +340,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             keep_artifacts=args.keep_artifacts,
             top_k=args.top_k,
         )
-    except ValueError as exc:
+    except (ValueError, FileNotFoundError) as exc:
         print(f"Social style eval runner failed: {exc}")
         return 2
 

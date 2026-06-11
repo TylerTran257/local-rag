@@ -144,6 +144,10 @@ def create_app(
     app.include_router(chat_router)
     app.include_router(jobs_router)
     app.include_router(documents_router)
-    app.include_router(ingest_router)
-    app.include_router(social_style_router)
+
+    # Metadata-aware routes are only available when metadata_aware=True
+    if metadata_aware:
+        app.include_router(ingest_router)
+        app.include_router(social_style_router)
+
     return app

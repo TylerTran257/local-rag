@@ -13,7 +13,6 @@ from typing import Any
 
 from app.ingest.use_case import IngestUseCase
 from app.retrieval import (
-    NoOpTraceSink,
     PassthroughScopePolicy,
     StructuredLoggingTraceSink,
     SystemClock,

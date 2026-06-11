@@ -10,11 +10,12 @@ def test_help_flag_exits_zero():
     assert exc_info.value.code == 0
 
 
-def test_main_raises_for_missing_eval_set(tmp_path):
+def test_main_returns_error_for_missing_eval_set(tmp_path):
     missing_path = tmp_path / "does_not_exist.json"
 
-    with pytest.raises(FileNotFoundError):
-        main(["--eval-set", str(missing_path)])
+    exit_code = main(["--eval-set", str(missing_path)])
+
+    assert exit_code == 2
 
 
 def test_main_returns_error_for_unknown_example_id(tmp_path):

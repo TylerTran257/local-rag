@@ -55,7 +55,7 @@ Unexpected categories: 0
 - **Retrieval gate: PASSED** means every example retrieved its expected chunks with full category coverage and no unexpected categories.
 - **Retrieval gate: FAILED** means at least one example missed an expected result. The output lists the failing example IDs under "Retrieval failures".
 
-The process exits with code 0 on PASSED and code 1 on FAILED (code 2 for configuration errors such as missing eval set files or unknown example IDs).
+The process exits with code 0 on PASSED and code 1 on FAILED. Configuration errors (missing eval set files, unknown example IDs) return exit code 2.
 
 ## Data Isolation
 

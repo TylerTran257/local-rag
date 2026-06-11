@@ -46,11 +46,23 @@ def mock_ingest_use_case():
 
 @pytest.fixture
 def client(mock_ingest_use_case, fake_document_service, fake_generation_service):
+    from unittest.mock import Mock
+    from app.composition import MetadataAwareRuntime
+
+    # Create a minimal runtime with only the ingest use case
+    mock_runtime = MetadataAwareRuntime(
+        retrieve_use_case=Mock(),
+        ingest_use_case=mock_ingest_use_case,
+        social_style_service=Mock(),
+        gateway=Mock(),
+    )
+
     app = create_app(
         document_service=fake_document_service,
         generation_service=fake_generation_service,
+        metadata_aware=True,
+        metadata_aware_runtime=mock_runtime,
     )
-    app.state.ingest_use_case = mock_ingest_use_case
     return TestClient(app)
 
 
