@@ -7,9 +7,11 @@ from app.api.routes import (
     chat_router,
     documents_router,
     health_router,
+    ingest_router,
     jobs_router,
     pages_router,
     search_router,
+    social_style_router,
     uploads_router,
 )
 from app.composition import MetadataAwareRuntime, build_metadata_aware_runtime
@@ -142,4 +144,6 @@ def create_app(
     app.include_router(chat_router)
     app.include_router(jobs_router)
     app.include_router(documents_router)
+    app.include_router(ingest_router)
+    app.include_router(social_style_router)
     return app
