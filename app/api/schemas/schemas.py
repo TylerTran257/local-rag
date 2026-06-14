@@ -63,6 +63,7 @@ class ChunkResult(BaseModel):
     service_name: NonEmptyString
     tenant_id: NonEmptyString
     chunk_id: NonEmptyString
+    domain_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class RetrieveRequest(BaseModel):

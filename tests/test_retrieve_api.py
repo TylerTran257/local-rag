@@ -28,6 +28,8 @@ def mock_retrieve_use_case():
                     "collection": "documents",
                     "source_label": "test.pdf",
                     "chunk_index": 0,
+                    "is_external": False,
+                    "topic": "platform",
                 },
             )
         ],
@@ -78,6 +80,10 @@ class TestRetrieveEndpoint:
         assert body["chunks"][0]["service_name"] == "test-service"
         assert body["chunks"][0]["tenant_id"] == "tenant-123"
         assert body["chunks"][0]["collection"] == "documents"
+        assert body["chunks"][0]["domain_metadata"] == {
+            "is_external": False,
+            "topic": "platform",
+        }
 
     def test_empty_retrieval_returns_empty_chunks(self, client, mock_retrieve_use_case):
         mock_retrieve_use_case.execute.return_value = RetrieveResult(

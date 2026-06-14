@@ -29,6 +29,8 @@ def mock_retrieve_use_case():
                     "source_label": "test.pdf",
                     "chunk_index": 0,
                     "document_id": "doc-1",
+                    "is_external": False,
+                    "topic": "platform",
                 },
             )
         ],
@@ -89,6 +91,10 @@ class TestAnswerEndpoint:
         assert len(body["sources"]) == 1
         assert body["sources"][0]["text"] == "This is retrieved content for answer generation."
         assert body["sources"][0]["chunk_id"] == "chunk-1"
+        assert body["sources"][0]["domain_metadata"] == {
+            "is_external": False,
+            "topic": "platform",
+        }
         mock_generation_service.answer_question.assert_called_once()
 
     def test_empty_retrieval_returns_fallback_answer(

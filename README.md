@@ -277,7 +277,11 @@ Success response:
       "collection": "documentation",
       "service_name": "api-service",
       "tenant_id": "tenant-456",
-      "chunk_id": "chunk-service-1"
+      "chunk_id": "chunk-service-1",
+      "domain_metadata": {
+        "topic": "rest",
+        "is_external": false
+      }
     }
   ],
   "trace_id": "trace-456"
@@ -295,6 +299,7 @@ Response fields:
 | `chunks[].service_name` | string | Chunk service namespace |
 | `chunks[].tenant_id` | string | Chunk tenant namespace |
 | `chunks[].chunk_id` | string | Stable chunk identifier from retrieval result |
+| `chunks[].domain_metadata` | object | Arbitrary non-core metadata stored on the chunk |
 | `trace_id` | string | Retrieval trace ID |
 
 Error behavior:
@@ -340,7 +345,11 @@ Success response:
       "collection": "documentation",
       "service_name": "api-service",
       "tenant_id": "tenant-456",
-      "chunk_id": "chunk-service-1"
+      "chunk_id": "chunk-service-1",
+      "domain_metadata": {
+        "topic": "rest",
+        "is_external": false
+      }
     }
   ],
   "trace_id": "trace-456"
