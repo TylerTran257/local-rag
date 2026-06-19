@@ -4,3 +4,7 @@ __pycache__/
 .venv/
 uploads/
 app.db
+
+# Real secrets / runtime config (commit the *.example.json templates only)
+config/api_keys.json
+config/profiles.json

@@ -6,6 +6,25 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.database import Base
 
 
+class ServiceProfileRecord(Base):
+    """Persisted per-service configuration profile."""
+
+    __tablename__ = "service_profiles"
+
+    service_name: Mapped[str] = mapped_column(String, primary_key=True)
+    embedding_model: Mapped[str] = mapped_column(String, nullable=False)
+    chunk_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    chunk_overlap: Mapped[int] = mapped_column(Integer, nullable=False)
+    dense_limit: Mapped[int] = mapped_column(Integer, nullable=False)
+    lexical_limit: Mapped[int] = mapped_column(Integer, nullable=False)
+    fusion_rrf_k: Mapped[int] = mapped_column(Integer, nullable=False)
+    default_mode: Mapped[str] = mapped_column(String, nullable=False)
+    # JSON-encoded generation overrides.
+    generation_overrides: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
 class Document(Base):
     __tablename__ = "documents"
 

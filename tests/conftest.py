@@ -4,7 +4,28 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from app.auth import ApiKeyRegistry
 from app.main import create_app
+
+# Shared test API key with an admin wildcard grant, so existing tests that send
+# valid scopes pass scope enforcement unchanged.
+TEST_API_KEY = "test-key"
+TEST_AUTH_HEADERS = {"X-API-Key": TEST_API_KEY}
+
+
+def build_test_registry() -> ApiKeyRegistry:
+    return ApiKeyRegistry.from_entries(
+        [
+            {
+                "key": TEST_API_KEY,
+                "key_id": "test-admin",
+                "services": ["*"],
+                "tenants": ["*"],
+                "collections": ["*"],
+                "admin": True,
+            }
+        ]
+    )
 
 # sys.path.append(str(Path(__file__).resolve().parents[1]))
 
@@ -146,8 +167,19 @@ def fake_generation_service():
 
 
 @pytest.fixture
-def client(fake_generation_service):
+def api_key_registry():
+    return build_test_registry()
+
+
+@pytest.fixture
+def auth_headers():
+    return dict(TEST_AUTH_HEADERS)
+
+
+@pytest.fixture
+def client(fake_generation_service, api_key_registry):
     app = create_app(
         generation_service=fake_generation_service,
+        api_key_registry=api_key_registry,
     )
-    return TestClient(app)
+    return TestClient(app, headers=TEST_AUTH_HEADERS)

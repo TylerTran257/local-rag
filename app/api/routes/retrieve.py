@@ -3,18 +3,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 
 from app.api.schemas import ChunkResult, RetrieveRequest as RetrieveRequestSchema, RetrieveResponse
-from app.retrieval import (
-    InvalidRetrievalRequestError,
-    NoIndexedCorpusError,
-    RetrievalExecutionError,
-    RetrievalScope,
-    RetrieveRequest,
-    RetrievedChunkValidationError,
-    UnsupportedRetrievalModeError,
-)
+from app.auth import Principal, enforce_scope, require_principal
+from app.retrieval import RetrievalScope, RetrieveRequest
 
 logger = logging.getLogger(__name__)
 
@@ -44,14 +37,25 @@ def _extract_domain_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.post("/retrieve", response_model=RetrieveResponse)
-def retrieve(request: Request, body: RetrieveRequestSchema):
+def retrieve(
+    request: Request,
+    body: RetrieveRequestSchema,
+    principal: Principal = Depends(require_principal),
+):
     """
     Retrieve scoped chunks for a query.
 
     Returns retrieved chunks with scores, metadata, and trace information.
-    All results are scoped by service_name, tenant_id, collections, and filters.
+    All results are scoped by service_name, tenant_id, collections, and filters,
+    and the caller's API key must be granted that scope.
     """
-    # Build scope from request
+    enforce_scope(
+        principal,
+        service_name=body.service_name,
+        tenant_id=body.tenant_id,
+        collections=body.collections,
+    )
+
     scope = RetrievalScope(
         service_name=body.service_name,
         tenant_id=body.tenant_id,
@@ -59,7 +63,6 @@ def retrieve(request: Request, body: RetrieveRequestSchema):
         filters=body.filters,
     )
 
-    # Build retrieval request
     retrieve_request = RetrieveRequest(
         query=body.query,
         retrieval_mode=body.mode,
@@ -67,20 +70,10 @@ def retrieve(request: Request, body: RetrieveRequestSchema):
         scope=scope,
     )
 
-    # Execute retrieval
-    try:
-        result = request.app.state.retrieve_use_case.execute(retrieve_request)
-    except InvalidRetrievalRequestError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except (
-        UnsupportedRetrievalModeError,
-        NoIndexedCorpusError,
-        RetrievalExecutionError,
-        RetrievedChunkValidationError,
-    ) as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # Domain errors propagate to the registered exception handlers, which
+    # render the uniform error envelope.
+    result = request.app.state.retrieve_use_case.execute(retrieve_request)
 
-    # Map chunks to response format
     chunks = [
         ChunkResult(
             text=chunk.content,

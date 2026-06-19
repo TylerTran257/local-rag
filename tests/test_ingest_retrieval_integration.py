@@ -26,10 +26,12 @@ from app.services.vector_store_service import VectorStoreService
 class FakeEmbeddingService:
     """Deterministic 384-dim embedder so tests run without a model download."""
 
-    def embed_text(self, text: str) -> list[float]:
+    def embed_text(self, text: str, model_name: str | None = None) -> list[float]:
         return self._vector(text)
 
-    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+    def embed_texts(
+        self, texts: list[str], model_name: str | None = None
+    ) -> list[list[float]]:
         return [self._vector(text) for text in texts]
 
     def _vector(self, text: str) -> list[float]:

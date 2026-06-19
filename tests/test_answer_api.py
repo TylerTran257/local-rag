@@ -55,7 +55,7 @@ def mock_generation_service():
 
 
 @pytest.fixture
-def client(mock_retrieve_use_case, mock_generation_service):
+def client(mock_retrieve_use_case, mock_generation_service, api_key_registry, auth_headers):
     mock_runtime = MetadataAwareRuntime(
         retrieve_use_case=mock_retrieve_use_case,
         ingest_use_case=Mock(),
@@ -65,8 +65,9 @@ def client(mock_retrieve_use_case, mock_generation_service):
     app = create_app(
         generation_service=mock_generation_service,
         metadata_aware_runtime=mock_runtime,
+        api_key_registry=api_key_registry,
     )
-    return TestClient(app)
+    return TestClient(app, headers=auth_headers)
 
 
 class TestAnswerEndpoint:
@@ -120,7 +121,7 @@ class TestAnswerEndpoint:
         assert len(body["sources"]) == 0
         mock_generation_service.answer_question.assert_not_called()
 
-    def test_generation_error_returns_500(
+    def test_generation_error_returns_502(
         self, client, mock_retrieve_use_case, mock_generation_service
     ):
         mock_generation_service.answer_question.side_effect = GenerationServiceError(
@@ -135,8 +136,11 @@ class TestAnswerEndpoint:
 
         response = client.post("/answer", json=payload)
 
-        assert response.status_code == 500
-        assert "generation failed" in response.json()["detail"].lower()
+        # Upstream LLM failures are surfaced as 502 Bad Gateway.
+        assert response.status_code == 502
+        body = response.json()
+        assert body["error"]["code"] == "GENERATION_FAILED"
+        assert "generation failed" in body["error"]["message"].lower()
 
     def test_missing_required_fields_returns_422(self, client):
         payload = {

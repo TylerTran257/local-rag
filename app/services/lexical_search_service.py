@@ -83,8 +83,8 @@ class LexicalSearchService:
                 session.commit()
 
     def _normalize_query(self, query: str) -> str:
-        # TODO: need to further normalize to strip unsafe character
-        tokens = query.lower().strip().split()
+        cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", query)
+        tokens = cleaned.lower().split()
         return " ".join(tokens)
 
     def _split_metadata(
@@ -169,10 +169,12 @@ class LexicalSearchService:
     def delete_document_chunks(self, document_id: str) -> None:
         with self.session_factory() as session:
             session.execute(
-                text(f"""
+                text(
+                    f"""
                 DELETE FROM {FTS_TABLE_NAME}
                 WHERE document_id = :document_id;
-            """),
+            """
+                ),
                 {"document_id": document_id},
             )
             session.commit()
@@ -239,7 +241,8 @@ class LexicalSearchService:
 
         with self.session_factory() as session:
             session.execute(
-                text(f"""
+                text(
+                    f"""
                     INSERT INTO {FTS_TABLE_NAME} (
                         document_chunk_id,
                         document_id,
@@ -266,7 +269,8 @@ class LexicalSearchService:
                         :domain_metadata,
                         :text
                     )
-                """),
+                """
+                ),
                 rows,
             )
             session.commit()
@@ -321,7 +325,8 @@ class LexicalSearchService:
 
         with self.session_factory() as session:
             result = session.execute(
-                text(f"""
+                text(
+                    f"""
                 SELECT
                     document_id,
                     original_filename,
@@ -338,7 +343,8 @@ class LexicalSearchService:
                 {where_clause}
                 ORDER BY bm25({FTS_TABLE_NAME})
                 LIMIT :limit
-            """),
+            """
+                ),
                 params,
             )
 

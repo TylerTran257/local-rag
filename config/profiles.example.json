@@ -1,0 +1,12 @@
+[
+  {
+    "service_name": "service-a",
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "chunk_size": 512,
+    "chunk_overlap": 64,
+    "dense_limit": 15,
+    "lexical_limit": 15,
+    "fusion_rrf_k": 60,
+    "default_mode": "hybrid"
+  }
+]

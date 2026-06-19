@@ -3,19 +3,12 @@ from __future__ import annotations
 import logging
 from typing import Any, AsyncIterator
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from app.api.schemas import AnswerRequest, AnswerResponse, ChunkResult, StreamEvent
-from app.retrieval import (
-    InvalidRetrievalRequestError,
-    NoIndexedCorpusError,
-    RetrievalExecutionError,
-    RetrievalScope,
-    RetrieveRequest,
-    RetrievedChunkValidationError,
-    UnsupportedRetrievalModeError,
-)
+from app.auth import Principal, enforce_scope, require_principal
+from app.retrieval import RetrievalScope, RetrieveRequest
 from app.services.generation_service import GenerationServiceError
 
 logger = logging.getLogger(__name__)
@@ -56,7 +49,7 @@ def _build_retrieval_scope(body: AnswerRequest) -> RetrievalScope:
 
 
 def _execute_retrieval(request: Request, body: AnswerRequest):
-    """Execute retrieval and return result, raising HTTPException on error."""
+    """Execute retrieval; domain errors propagate to exception handlers."""
     scope = _build_retrieval_scope(body)
     retrieve_request = RetrieveRequest(
         query=body.query,
@@ -64,18 +57,7 @@ def _execute_retrieval(request: Request, body: AnswerRequest):
         limit=body.limit,
         scope=scope,
     )
-
-    try:
-        return request.app.state.retrieve_use_case.execute(retrieve_request)
-    except InvalidRetrievalRequestError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except (
-        UnsupportedRetrievalModeError,
-        NoIndexedCorpusError,
-        RetrievalExecutionError,
-        RetrievedChunkValidationError,
-    ) as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return request.app.state.retrieve_use_case.execute(retrieve_request)
 
 
 def _map_chunks_to_sources(chunks):
@@ -110,12 +92,23 @@ def _map_chunks_to_chunk_results(chunks):
 
 
 @router.post("/answer", response_model=AnswerResponse)
-def answer(request: Request, body: AnswerRequest):
+def answer(
+    request: Request,
+    body: AnswerRequest,
+    principal: Principal = Depends(require_principal),
+):
     """
     Retrieve scoped chunks and generate a complete answer.
 
     Returns a generated answer with source references and trace information.
     """
+    enforce_scope(
+        principal,
+        service_name=body.service_name,
+        tenant_id=body.tenant_id,
+        collections=body.collections,
+    )
+
     # Retrieve scoped chunks
     result = _execute_retrieval(request, body)
 
@@ -130,13 +123,10 @@ def answer(request: Request, body: AnswerRequest):
     # Map chunks to generation service format
     sources = _map_chunks_to_sources(result.chunks)
 
-    # Generate answer
-    try:
-        answer_text = request.app.state.generation_service.answer_question(
-            body.query, sources
-        )
-    except GenerationServiceError as exc:
-        raise HTTPException(status_code=500, detail=f"Answer generation failed: {exc}")
+    # Generate answer (GenerationServiceError propagates to the handler).
+    answer_text = request.app.state.generation_service.answer_question(
+        body.query, sources
+    )
 
     # Map chunks to response format
     source_chunks = _map_chunks_to_chunk_results(result.chunks)
@@ -149,12 +139,23 @@ def answer(request: Request, body: AnswerRequest):
 
 
 @router.post("/answer/stream")
-async def answer_stream(request: Request, body: AnswerRequest):
+async def answer_stream(
+    request: Request,
+    body: AnswerRequest,
+    principal: Principal = Depends(require_principal),
+):
     """
     Retrieve scoped chunks and stream the generated answer via SSE.
 
     Returns Server-Sent Events with content and completion signal.
     """
+    enforce_scope(
+        principal,
+        service_name=body.service_name,
+        tenant_id=body.tenant_id,
+        collections=body.collections,
+    )
+
     # Retrieve scoped chunks
     result = _execute_retrieval(request, body)
 

@@ -829,6 +829,54 @@ class TestMigrationFromIntermediateSchema:
             session.commit()
 
 
+class TestQueryEscaping:
+    """Tests that FTS5 metacharacters in queries are safely escaped."""
+
+    def test_commas_in_query(self, lexical_service, sample_chunks, sample_metadata):
+        lexical_service.index_document_chunks(
+            document_id="doc-1",
+            original_filename="test.txt",
+            chunks=sample_chunks,
+            metadata=sample_metadata,
+        )
+
+        results = lexical_service.search(query="Python, programming", limit=10)
+        assert len(results) >= 1
+
+    def test_parentheses_in_query(self, lexical_service, sample_chunks, sample_metadata):
+        lexical_service.index_document_chunks(
+            document_id="doc-1",
+            original_filename="test.txt",
+            chunks=sample_chunks,
+            metadata=sample_metadata,
+        )
+
+        results = lexical_service.search(query="programming (language)", limit=10)
+        assert len(results) == 2
+
+    def test_quotes_and_special_chars_in_query(self, lexical_service, sample_chunks, sample_metadata):
+        lexical_service.index_document_chunks(
+            document_id="doc-1",
+            original_filename="test.txt",
+            chunks=sample_chunks,
+            metadata=sample_metadata,
+        )
+
+        results = lexical_service.search(query='"Python" + language*', limit=10)
+        assert len(results) >= 1
+
+    def test_only_special_chars_returns_empty(self, lexical_service, sample_chunks, sample_metadata):
+        lexical_service.index_document_chunks(
+            document_id="doc-1",
+            original_filename="test.txt",
+            chunks=sample_chunks,
+            metadata=sample_metadata,
+        )
+
+        results = lexical_service.search(query=",,,()***", limit=10)
+        assert len(results) == 0
+
+
 class TestHasIndexedChunks:
     """Tests for the lexical corpus presence check."""
 

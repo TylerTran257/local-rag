@@ -6,10 +6,14 @@ RetrieveUseCase and IngestUseCase with all their dependencies.
 This module centralizes the wiring and makes it reusable across
 create_app(), evals, and tests.
 """
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 from app.ingest.use_case import IngestUseCase
+from app.profiles.store import ProfileStore
 from app.retrieval import (
+    NamespacePolicy,
     PassthroughScopePolicy,
     StructuredLoggingTraceSink,
     SystemClock,
@@ -26,6 +30,13 @@ from app.retrieval.use_case import RetrieveUseCase
 from app.services.embedding_service import EmbeddingService
 from app.services.lexical_search_service import LexicalSearchService
 from app.services.vector_store_service import VectorStoreService
+from app.settings import settings
+
+
+def _default_scope_policy() -> ScopePolicy:
+    if settings.scope_policy_mode == "namespace":
+        return NamespacePolicy()
+    return PassthroughScopePolicy()
 
 
 @dataclass(frozen=True)
@@ -39,6 +50,9 @@ class MetadataAwareRuntime:
     retrieve_use_case: RetrieveUseCase
     ingest_use_case: IngestUseCase
     gateway: MetadataAwareRetrievalGateway
+    # Always populated by ``build_metadata_aware_runtime``; defaulted so unit
+    # tests can construct a runtime with mocked use cases.
+    profile_store: ProfileStore | None = None
 
 
 def build_metadata_aware_runtime(
@@ -49,6 +63,7 @@ def build_metadata_aware_runtime(
     embedding_service: EmbeddingService | None = None,
     vector_store_service: VectorStoreService | None = None,
     lexical_search_service: LexicalSearchService | None = None,
+    profile_store: ProfileStore | None = None,
     # Retrieval core overrides -- primarily useful for tests.
     scope_policy: ScopePolicy | None = None,
     clock: Clock | None = None,
@@ -70,16 +85,21 @@ def build_metadata_aware_runtime(
     resolved_embedding = embedding_service or EmbeddingService()
     resolved_vector_store = vector_store_service or VectorStoreService()
     resolved_lexical = lexical_search_service or LexicalSearchService()
+    resolved_profile_store = profile_store or ProfileStore()
 
     # --- Retrieval gateway ---
     gateway = MetadataAwareRetrievalGateway(
         vector_store_service=resolved_vector_store,
         lexical_search_service=resolved_lexical,
         embedding_service=resolved_embedding,
+        profile_store=resolved_profile_store,
     )
 
     # --- Retrieval use case ---
-    resolved_scope_policy = scope_policy or PassthroughScopePolicy()
+    # Scope policy: explicit override wins; otherwise pick by configured mode.
+    # "namespace" adds fail-closed structural enforcement in the retrieval core
+    # (defense in depth on top of the API-key scope check at the route layer).
+    resolved_scope_policy = scope_policy or _default_scope_policy()
     resolved_clock = clock or SystemClock()
     resolved_trace_id_gen = trace_id_generator or UuidTraceIdGenerator()
     resolved_trace_sink = trace_sink or StructuredLoggingTraceSink()
@@ -97,10 +117,12 @@ def build_metadata_aware_runtime(
         embedding_service=resolved_embedding,
         vector_store_service=resolved_vector_store,
         lexical_search_service=resolved_lexical,
+        profile_store=resolved_profile_store,
     )
 
     return MetadataAwareRuntime(
         retrieve_use_case=retrieve_use_case,
         ingest_use_case=ingest_use_case,
         gateway=gateway,
+        profile_store=resolved_profile_store,
     )

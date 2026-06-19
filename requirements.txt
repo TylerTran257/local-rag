@@ -24,3 +24,20 @@ pytest==9.0.3
 pypdf==6.11.0
 websockets==16.0
 pydantic-settings==2.14.1
+
+# Observability
+prometheus-client==0.25.0
+
+# MCP server (agent-callable tool surface) and its dependencies
+mcp==1.28.0
+sse-starlette==3.4.4
+httpx-sse==0.4.3
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+referencing==0.37.0
+rpds-py==2026.5.1
+attrs==26.1.0
+PyJWT==2.13.0
+cryptography==49.0.0
+cffi==2.0.0
+pycparser==3.0

@@ -23,20 +23,25 @@ from app.retrieval.use_case import RetrieveUseCase
 class FakeEmbeddingService:
     """Minimal stand-in for EmbeddingService."""
 
-    def embed_text(self, text: str) -> list[float]:
+    def embed_text(self, text: str, model_name: str | None = None) -> list[float]:
         return [0.0] * 384
 
-    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+    def embed_texts(
+        self, texts: list[str], model_name: str | None = None
+    ) -> list[list[float]]:
         return [[0.0] * 384 for _ in texts]
 
 
 class FakeVectorStoreService:
     """Minimal stand-in for VectorStoreService."""
 
-    def has_indexed_chunks(self) -> bool:
+    def has_indexed_chunks(self, collection_name=None) -> bool:
         return False
 
-    def search(self, *, query_embedding, limit, query_filter=None):
+    def ensure_collection(self, collection_name=None, vector_size=384):
+        pass
+
+    def search(self, *, query_embedding, limit, query_filter=None, collection_name=None):
         return []
 
     def build_query_filter(self, scope):

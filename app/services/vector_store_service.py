@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -31,27 +33,48 @@ STORED_CHUNK_FIELDS = {
 }
 
 
+# Default vector dimension (sentence-transformers/all-MiniLM-L6-v2).
+DEFAULT_VECTOR_SIZE = 384
+
+
 class VectorStoreService:
     def __init__(
         self,
         qdrant_path: str | Path | None = None,
         collection_name: str | None = None,
+        qdrant_url: str | None = None,
+        qdrant_api_key: str | None = None,
     ) -> None:
         self.collection_name = collection_name or settings.qdrant_collection_name
-        qdrant_storage_path = qdrant_path or settings.qdrant_path
-        self.client = QdrantClient(path=str(qdrant_storage_path))
+        # Prefer a remote Qdrant when a URL is configured (shared deployment);
+        # otherwise fall back to the on-disk local store.
+        resolved_url = qdrant_url if qdrant_url is not None else settings.qdrant_url
+        if resolved_url:
+            api_key = qdrant_api_key if qdrant_api_key is not None else settings.qdrant_api_key
+            self.client = QdrantClient(url=resolved_url, api_key=api_key)
+        else:
+            qdrant_storage_path = qdrant_path or settings.qdrant_path
+            self.client = QdrantClient(path=str(qdrant_storage_path))
         self.ensure_collection()
 
-    def ensure_collection(self) -> None:
+    def _resolve_collection(self, collection_name: str | None) -> str:
+        return collection_name or self.collection_name
+
+    def ensure_collection(
+        self,
+        collection_name: str | None = None,
+        vector_size: int = DEFAULT_VECTOR_SIZE,
+    ) -> None:
+        name = self._resolve_collection(collection_name)
         try:
-            self.client.get_collection(self.collection_name)
+            self.client.get_collection(name)
             return
         except (NotImplementedError, UnexpectedResponse, ValueError):
             pass
 
         self.client.create_collection(
-            collection_name=self.collection_name,
-            vectors_config=VectorParams(size=384, distance=Distance.COSINE),
+            collection_name=name,
+            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
         )
 
     def upsert_document_chunks(
@@ -61,6 +84,7 @@ class VectorStoreService:
         chunks: Sequence[str | DocumentChunk],
         embeddings: list[list[float]],
         metadata: Sequence[ValidatedMetadata | dict[str, Any]] | ValidatedMetadata | dict[str, Any] | None = None,
+        collection_name: str | None = None,
     ) -> None:
         metadata_by_chunk: Sequence[ValidatedMetadata | dict[str, Any]] | None
         if metadata is None:
@@ -93,7 +117,9 @@ class VectorStoreService:
                 )
             )
 
-        self.client.upsert(collection_name=self.collection_name, points=points)
+        self.client.upsert(
+            collection_name=self._resolve_collection(collection_name), points=points
+        )
 
     def build_query_filter(self, scope: RetrievalScope) -> Filter:
         must_conditions: list[Condition] = []
@@ -126,9 +152,10 @@ class VectorStoreService:
         query_embedding: list[float],
         limit: int,
         query_filter: Filter | None = None,
+        collection_name: str | None = None,
     ) -> list[dict]:
         hits = self.client.query_points(
-            collection_name=self.collection_name,
+            collection_name=self._resolve_collection(collection_name),
             query=query_embedding,
             limit=limit,
             query_filter=query_filter,
@@ -143,10 +170,12 @@ class VectorStoreService:
 
         return payloads
 
-    def has_indexed_chunks(self) -> bool:
+    def has_indexed_chunks(self, collection_name: str | None = None) -> bool:
         try:
-            collection_info = self.client.get_collection(self.collection_name)
-        except UnexpectedResponse:
+            collection_info = self.client.get_collection(
+                self._resolve_collection(collection_name)
+            )
+        except (UnexpectedResponse, ValueError):
             return False
 
         points_count = collection_info.points_count or 0

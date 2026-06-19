@@ -12,6 +12,8 @@ def register_request_timing_middleware(app: FastAPI) -> None:
     async def log_request_timing(request: Request, call_next):
         request_id = str(uuid4())
         request.state.request_id = request_id
+        # Expose as the trace id so error handlers and callers can correlate.
+        request.state.trace_id = request_id
         started_at = perf_counter()
 
         try:
@@ -29,6 +31,7 @@ def register_request_timing_middleware(app: FastAPI) -> None:
 
         duration_ms = round((perf_counter() - started_at) * 1000, 2)
         response.headers["X-Request-ID"] = request_id
+        response.headers["X-Trace-Id"] = request_id
 
         logger.info(
             "event=http_request_completed request_id=%s method=%s path=%s status_code=%s duration_ms=%s",

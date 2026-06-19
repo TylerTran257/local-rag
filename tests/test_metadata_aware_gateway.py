@@ -133,7 +133,8 @@ class TestDenseRetrieval:
         """Dense retrieval embeds the query."""
         result = gateway.retrieve(effective_request)
 
-        mock_embedding_service.embed_text.assert_called_once_with("test query")
+        mock_embedding_service.embed_text.assert_called_once()
+        assert mock_embedding_service.embed_text.call_args.args[0] == "test query"
 
     def test_dense_retrieval_applies_scope_filters(
         self, gateway, effective_request, mock_vector_store, mock_embedding_service

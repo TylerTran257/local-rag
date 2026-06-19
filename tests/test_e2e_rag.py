@@ -61,12 +61,13 @@ class TestManualUploadRetrieveAnswerFlow:
         return service
 
     @pytest.fixture
-    def client(self, mock_runtime, generation_service):
+    def client(self, mock_runtime, generation_service, api_key_registry, auth_headers):
         app = create_app(
             generation_service=generation_service,
             metadata_aware_runtime=mock_runtime,
+            api_key_registry=api_key_registry,
         )
-        return TestClient(app)
+        return TestClient(app, headers=auth_headers)
 
     def test_upload_retrieve_answer_flow(self, client, mock_runtime, generation_service):
         """Test the full flow from upload to answer generation."""
@@ -161,12 +162,13 @@ class TestServiceIngestScopedRetrieveAnswerFlow:
         return service
 
     @pytest.fixture
-    def client(self, mock_runtime, generation_service):
+    def client(self, mock_runtime, generation_service, api_key_registry, auth_headers):
         app = create_app(
             generation_service=generation_service,
             metadata_aware_runtime=mock_runtime,
+            api_key_registry=api_key_registry,
         )
-        return TestClient(app)
+        return TestClient(app, headers=auth_headers)
 
     def test_service_ingest_scoped_retrieve_answer(self, client, mock_runtime, generation_service):
         """Test service ingestion with metadata-scoped retrieval and answer."""
@@ -261,12 +263,13 @@ class TestMetadataIsolation:
         )
 
     @pytest.fixture
-    def client(self, mock_runtime):
+    def client(self, mock_runtime, api_key_registry, auth_headers):
         app = create_app(
             generation_service=Mock(),
             metadata_aware_runtime=mock_runtime,
+            api_key_registry=api_key_registry,
         )
-        return TestClient(app)
+        return TestClient(app, headers=auth_headers)
 
     def test_service_a_cannot_access_service_b_data(self, client):
         """Test that service B cannot retrieve service A's data."""
@@ -351,12 +354,13 @@ class TestStreamingAnswer:
         return service
 
     @pytest.fixture
-    def client(self, mock_runtime, generation_service):
+    def client(self, mock_runtime, generation_service, api_key_registry, auth_headers):
         app = create_app(
             generation_service=generation_service,
             metadata_aware_runtime=mock_runtime,
+            api_key_registry=api_key_registry,
         )
-        return TestClient(app)
+        return TestClient(app, headers=auth_headers)
 
     def test_streaming_answer_emits_content_and_done(self, client):
         """Test that streaming answer emits SSE events with content and completion signal."""

@@ -40,7 +40,7 @@ def mock_retrieve_use_case():
 
 
 @pytest.fixture
-def client(mock_retrieve_use_case):
+def client(mock_retrieve_use_case, api_key_registry, auth_headers):
     mock_runtime = MetadataAwareRuntime(
         retrieve_use_case=mock_retrieve_use_case,
         ingest_use_case=Mock(),
@@ -50,8 +50,9 @@ def client(mock_retrieve_use_case):
     app = create_app(
         generation_service=Mock(),
         metadata_aware_runtime=mock_runtime,
+        api_key_registry=api_key_registry,
     )
-    return TestClient(app)
+    return TestClient(app, headers=auth_headers)
 
 
 class TestRetrieveEndpoint:

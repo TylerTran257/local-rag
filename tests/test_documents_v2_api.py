@@ -30,7 +30,7 @@ def fake_generation_service():
 
 
 @pytest.fixture
-def client(mock_ingest_use_case, fake_generation_service):
+def client(mock_ingest_use_case, fake_generation_service, api_key_registry, auth_headers):
     mock_runtime = MetadataAwareRuntime(
         retrieve_use_case=Mock(),
         ingest_use_case=mock_ingest_use_case,
@@ -40,8 +40,9 @@ def client(mock_ingest_use_case, fake_generation_service):
     app = create_app(
         generation_service=fake_generation_service,
         metadata_aware_runtime=mock_runtime,
+        api_key_registry=api_key_registry,
     )
-    return TestClient(app)
+    return TestClient(app, headers=auth_headers)
 
 
 class TestDocumentUploadEndpoint:
@@ -92,7 +93,8 @@ class TestDocumentUploadEndpoint:
 
         assert response.status_code == 422
         body = response.json()
-        assert body["invalid_fields"] == ["service_name"]
+        assert body["error"]["code"] == "METADATA_VALIDATION_FAILED"
+        assert body["error"]["details"]["invalid_fields"] == ["service_name"]
 
     def test_unsupported_file_type_returns_422(self, client):
         file_content = b"binary data"
@@ -102,7 +104,8 @@ class TestDocumentUploadEndpoint:
 
         assert response.status_code == 422
         body = response.json()
-        assert "Unsupported file type" in body["detail"]
+        assert body["error"]["code"] == "TEXT_EXTRACTION_FAILED"
+        assert "Unsupported file type" in body["error"]["message"]
 
     def test_empty_file_returns_422(self, client, mock_ingest_use_case):
         from app.ingest.contracts import EmptyDocumentError
@@ -115,7 +118,7 @@ class TestDocumentUploadEndpoint:
         response = client.post("/documents/upload", files=files)
 
         assert response.status_code == 422
-        assert "no text to ingest" in response.json()["detail"]
+        assert "no text to ingest" in response.json()["error"]["message"]
 
 
 class TestDocumentIngestEndpoint:
@@ -184,7 +187,7 @@ class TestDocumentIngestEndpoint:
         response = client.post("/documents/ingest", json=payload)
 
         assert response.status_code == 422
-        assert "no text to ingest" in response.json()["detail"]
+        assert "no text to ingest" in response.json()["error"]["message"]
 
     def test_domain_metadata_is_accepted(self, client, mock_ingest_use_case):
         payload = {
@@ -222,4 +225,5 @@ class TestDocumentIngestEndpoint:
 
         assert response.status_code == 422
         body = response.json()
-        assert body["invalid_fields"] == ["tenant_id"]
+        assert body["error"]["code"] == "METADATA_VALIDATION_FAILED"
+        assert body["error"]["details"]["invalid_fields"] == ["tenant_id"]

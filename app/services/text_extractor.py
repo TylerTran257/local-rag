@@ -4,6 +4,10 @@ from pathlib import Path
 from pypdf import PdfReader
 
 
+class TextExtractionError(ValueError):
+    """Raised when an uploaded file cannot be turned into text."""
+
+
 class TextExtractor:
     def extract(self, file_path: Path) -> str:
         suffix = file_path.suffix.lower()
@@ -13,7 +17,7 @@ class TextExtractor:
         if suffix == ".pdf":
             return self._extract_pdf_file(file_path)
 
-        raise ValueError(f"Unsupported file type: {file_path.suffix}")
+        raise TextExtractionError(f"Unsupported file type: {file_path.suffix}")
 
     def _extract_txt_file(self, file_path: Path) -> str:
         return file_path.read_bytes().decode("utf-8")
@@ -34,6 +38,6 @@ class TextExtractor:
         normalized_text = self._normalize_pdf_text(text)
 
         if not text:
-            raise ValueError("PDF did not contain extractable text")
+            raise TextExtractionError("PDF did not contain extractable text")
 
         return normalized_text

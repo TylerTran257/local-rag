@@ -12,14 +12,31 @@ from app.ingest.contracts import (
     MetadataValidator,
     ValidatedMetadata,
 )
+from app.profiles import (
+    DEFAULT_CHUNK_OVERLAP,
+    DEFAULT_CHUNK_SIZE,
+    ServiceProfile,
+    collection_for,
+    default_profile,
+)
+from app.profiles.store import ProfileStore
 from app.services.embedding_service import EmbeddingService
 from app.services.lexical_search_service import LexicalSearchService
-from app.services.vector_store_service import VectorStoreService
+from app.services.vector_store_service import DEFAULT_VECTOR_SIZE, VectorStoreService
 
 logger = logging.getLogger(__name__)
 
-# Internal chunking defaults (not exposed through the public API)
-text_splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=120)
+# Fallback splitter used when no profile store is wired (preserves prior
+# default chunking for callers that construct the use case directly).
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=DEFAULT_CHUNK_SIZE, chunk_overlap=DEFAULT_CHUNK_OVERLAP
+)
+
+
+def _splitter_for(profile: ServiceProfile) -> RecursiveCharacterTextSplitter:
+    return RecursiveCharacterTextSplitter(
+        chunk_size=profile.chunk_size, chunk_overlap=profile.chunk_overlap
+    )
 
 
 @dataclass
@@ -47,10 +64,17 @@ class IngestUseCase:
         embedding_service: EmbeddingService,
         vector_store_service: VectorStoreService,
         lexical_search_service: LexicalSearchService,
+        profile_store: ProfileStore | None = None,
     ):
         self.embedding_service = embedding_service
         self.vector_store_service = vector_store_service
         self.lexical_search_service = lexical_search_service
+        self.profile_store = profile_store
+
+    def _resolve_profile(self, service_name: str) -> ServiceProfile:
+        if self.profile_store is None:
+            return default_profile(service_name)
+        return self.profile_store.get(service_name)
 
     def ingest_document(self, document: IngestDocument) -> IngestResult:
         """
@@ -82,7 +106,8 @@ class IngestUseCase:
             )
             raise EmptyDocumentError(source_label=document.source_label)
 
-        chunk_texts = text_splitter.split_text(document.text)
+        profile = self._resolve_profile(document.service_name)
+        chunk_texts = _splitter_for(profile).split_text(document.text)
 
         if not chunk_texts:
             logger.info(
@@ -112,6 +137,7 @@ class IngestUseCase:
             original_filename=document.source_label,
             chunks=chunks,
             metadata_dict=self._metadata_to_dict(validated_metadata),
+            profile=profile,
         )
 
     def ingest_chunks(self, chunks: list[IngestChunk]) -> IngestResult:
@@ -140,6 +166,10 @@ class IngestUseCase:
             for chunk in chunks
         ]
 
+        # A batch shares one embedding profile; resolve from the first chunk's
+        # service (batches are expected to be single-service).
+        profile = self._resolve_profile(chunks[0].service_name)
+
         # Generate document ID for this batch
         document_id = str(uuid4())
 
@@ -159,6 +189,7 @@ class IngestUseCase:
             original_filename=chunks[0].source_label,
             chunks=document_chunks,
             metadata_dict=metadata_dicts,
+            profile=profile,
         )
 
     def _validate_and_prepare_metadata(
@@ -201,15 +232,27 @@ class IngestUseCase:
         original_filename: str,
         chunks: list[DocumentChunk],
         metadata_dict: dict | list[dict],
+        profile: ServiceProfile,
     ) -> IngestResult:
         """Embed chunks and store in both backends with metadata.
 
         metadata_dict may be a single dict (applies to all chunks) or a list
         of per-chunk dicts matching the chunk count.
+
+        The profile's embedding model selects both the embedding model and the
+        Qdrant collection (one collection per model so vector dimensions never
+        collide). The collection is created on demand sized to the embeddings
+        the model actually produces.
         """
-        # Embed all chunks
+        # Embed all chunks with the profile's embedding model
         chunk_texts = [chunk.text for chunk in chunks]
-        embeddings = self.embedding_service.embed_texts(chunk_texts)
+        embeddings = self.embedding_service.embed_texts(
+            chunk_texts, model_name=profile.embedding_model
+        )
+
+        collection_name = collection_for(profile.embedding_model)
+        vector_size = len(embeddings[0]) if embeddings else DEFAULT_VECTOR_SIZE
+        self.vector_store_service.ensure_collection(collection_name, vector_size)
 
         # Store in vector backend with metadata
         self.vector_store_service.upsert_document_chunks(
@@ -218,6 +261,7 @@ class IngestUseCase:
             chunks=chunks,
             embeddings=embeddings,
             metadata=metadata_dict,
+            collection_name=collection_name,
         )
 
         # Store in lexical backend with metadata

@@ -13,6 +13,8 @@ from app.retrieval.types import (
     RetrievalMode,
     RetrievedChunk,
 )
+from app.profiles import collection_for, default_profile
+from app.profiles.store import ProfileStore
 from app.services.embedding_service import EmbeddingService
 from app.services.lexical_search_service import LexicalSearchService
 from app.services.vector_store_service import VectorStoreService
@@ -38,10 +40,21 @@ class MetadataAwareRetrievalGateway:
         vector_store_service: VectorStoreService,
         lexical_search_service: LexicalSearchService,
         embedding_service: EmbeddingService,
+        profile_store: ProfileStore | None = None,
     ):
         self.vector_store_service = vector_store_service
         self.lexical_search_service = lexical_search_service
         self.embedding_service = embedding_service
+        self.profile_store = profile_store
+
+    def _resolve_embedding_target(self, service_name: str) -> tuple[str, str]:
+        """Return ``(embedding_model, collection_name)`` for a service."""
+        profile = (
+            self.profile_store.get(service_name)
+            if self.profile_store is not None
+            else default_profile(service_name)
+        )
+        return profile.embedding_model, collection_for(profile.embedding_model)
 
     def retrieve(self, request: EffectiveRetrieveRequest) -> RetrievalGatewayResult:
         """
@@ -58,7 +71,10 @@ class MetadataAwareRetrievalGateway:
             RetrievalExecutionError: When backend execution fails unexpectedly
         """
         try:
-            self._check_corpus(request.retrieval_mode)
+            _, collection_name = self._resolve_embedding_target(
+                request.validated_scope.service_name
+            )
+            self._check_corpus(request.retrieval_mode, collection_name)
 
             if request.retrieval_mode == RetrievalMode.DENSE:
                 return self._retrieve_dense(request)
@@ -81,14 +97,14 @@ class MetadataAwareRetrievalGateway:
                 details={"exception_type": type(e).__name__, "exception_message": str(e)},
             )
 
-    def _check_corpus(self, mode: RetrievalMode) -> None:
+    def _check_corpus(self, mode: RetrievalMode, collection_name: str) -> None:
         """Raise NoIndexedCorpusError when the backends required by the mode are empty.
 
         Hybrid retrieval can serve results from either backend, so it only
         fails when both are empty.
         """
         if mode == RetrievalMode.DENSE:
-            if not self.vector_store_service.has_indexed_chunks():
+            if not self.vector_store_service.has_indexed_chunks(collection_name):
                 raise NoIndexedCorpusError(
                     trace_id="unknown",
                     internal_message="No indexed corpus available in vector backend",
@@ -103,7 +119,7 @@ class MetadataAwareRetrievalGateway:
                 )
         elif mode == RetrievalMode.HYBRID:
             if (
-                not self.vector_store_service.has_indexed_chunks()
+                not self.vector_store_service.has_indexed_chunks(collection_name)
                 and not self.lexical_search_service.has_indexed_chunks()
             ):
                 raise NoIndexedCorpusError(
@@ -116,8 +132,14 @@ class MetadataAwareRetrievalGateway:
         self, request: EffectiveRetrieveRequest
     ) -> RetrievalGatewayResult:
         """Execute dense retrieval with scope filters."""
-        # Embed query
-        query_embedding = self.embedding_service.embed_text(request.normalized_query)
+        model_name, collection_name = self._resolve_embedding_target(
+            request.validated_scope.service_name
+        )
+
+        # Embed query with the service's embedding model
+        query_embedding = self.embedding_service.embed_text(
+            request.normalized_query, model_name=model_name
+        )
 
         # Build qdrant filter from scope
         query_filter = self.vector_store_service.build_query_filter(
@@ -129,6 +151,7 @@ class MetadataAwareRetrievalGateway:
             query_embedding=query_embedding,
             limit=request.limit,
             query_filter=query_filter,
+            collection_name=collection_name,
         )
 
         # Build filters dict for diagnostics
@@ -196,6 +219,10 @@ class MetadataAwareRetrievalGateway:
         self, request: EffectiveRetrieveRequest
     ) -> RetrievalGatewayResult:
         """Execute hybrid retrieval with RRF fusion of scoped sub-retrievals."""
+        model_name, collection_name = self._resolve_embedding_target(
+            request.validated_scope.service_name
+        )
+
         # Build filters for both backends
         query_filter = self.vector_store_service.build_query_filter(
             request.validated_scope
@@ -203,11 +230,14 @@ class MetadataAwareRetrievalGateway:
         lexical_filters = self._build_filters(request.validated_scope)
 
         # Dense retrieval
-        query_embedding = self.embedding_service.embed_text(request.normalized_query)
+        query_embedding = self.embedding_service.embed_text(
+            request.normalized_query, model_name=model_name
+        )
         dense_results = self.vector_store_service.search(
             query_embedding=query_embedding,
             limit=request.limit,
             query_filter=query_filter,
+            collection_name=collection_name,
         )
 
         # Lexical retrieval

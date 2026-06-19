@@ -1,0 +1,20 @@
+{
+  "keys": [
+    {
+      "key": "replace-with-a-long-random-admin-secret",
+      "key_id": "admin",
+      "services": ["*"],
+      "tenants": ["*"],
+      "collections": ["*"],
+      "admin": true
+    },
+    {
+      "key": "replace-with-service-a-secret",
+      "key_id": "service-a",
+      "services": ["service-a"],
+      "tenants": ["*"],
+      "collections": ["docs", "faq"],
+      "admin": false
+    }
+  ]
+}

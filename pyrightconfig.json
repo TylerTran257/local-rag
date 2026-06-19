@@ -1,11 +1,12 @@
 {
   "venvPath": ".",
-  "venv": ".venv",
+  "venv": "venv",
+  "pythonVersion": "3.11",
   "executionEnvironments": [
     {
       "root": ".",
       "extraPaths": [
-        ".venv/lib/python3.11/site-packages"
+        "venv/lib/python3.11/site-packages"
       ]
     }
   ]

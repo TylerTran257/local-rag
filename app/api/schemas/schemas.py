@@ -114,3 +114,37 @@ class StreamEvent(BaseModel):
     event: NonEmptyString
     data: str
     done: bool
+
+
+class ProfileUpsertRequest(BaseModel):
+    """Create or update a service config profile.
+
+    Omitted fields fall back to the platform defaults. ``embedding_model`` is
+    fixed once a profile exists (see the immutability rule in ProfileStore).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    service_name: NonEmptyString
+    embedding_model: NonEmptyString | None = None
+    chunk_size: int | None = Field(default=None, gt=0)
+    chunk_overlap: int | None = Field(default=None, ge=0)
+    dense_limit: int | None = Field(default=None, gt=0)
+    lexical_limit: int | None = Field(default=None, gt=0)
+    fusion_rrf_k: int | None = Field(default=None, gt=0)
+    default_mode: RetrievalMode | None = None
+    generation_overrides: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProfileResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    service_name: NonEmptyString
+    embedding_model: NonEmptyString
+    chunk_size: int
+    chunk_overlap: int
+    dense_limit: int
+    lexical_limit: int
+    fusion_rrf_k: int
+    default_mode: RetrievalMode
+    generation_overrides: dict[str, Any] = Field(default_factory=dict)
