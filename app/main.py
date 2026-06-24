@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from app.api.errors import register_exception_handlers
 from app.api.routes import (
     answer_router,
+    delete_router,
     documents_v2_router,
     health_router,
     profiles_router,
@@ -68,6 +69,7 @@ def create_app(
     # Wire app state
     app.state.retrieve_use_case = runtime.retrieve_use_case
     app.state.ingest_use_case = runtime.ingest_use_case
+    app.state.delete_use_case = runtime.delete_use_case
     app.state.generation_service = resolved_generation_service
     app.state.profile_store = runtime.profile_store
     app.state.api_key_registry = resolved_registry
@@ -78,5 +80,6 @@ def create_app(
     app.include_router(retrieve_router)
     app.include_router(answer_router)
     app.include_router(profiles_router)
+    app.include_router(delete_router)
 
     return app

@@ -147,6 +147,16 @@ class VectorStoreService:
         )
         return Filter(must=must_conditions)
 
+    def delete_by_scope(
+        self, scope: RetrievalScope, collection_name: str | None = None
+    ) -> int:
+        query_filter = self.build_query_filter(scope)
+        name = self._resolve_collection(collection_name)
+        count = self.client.count(name, count_filter=query_filter, exact=True).count
+        if count > 0:
+            self.client.delete(collection_name=name, points_selector=query_filter)
+        return count
+
     def search(
         self,
         query_embedding: list[float],

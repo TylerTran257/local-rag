@@ -12,6 +12,7 @@ The app is a shared Retrieval Service exposed over **REST** and **MCP**. Public 
 - `POST /retrieve`
 - `POST /answer`
 - `POST /answer/stream`
+- `POST /documents/delete`
 - `POST /profiles`, `GET /profiles/{service_name}` — per-service config (chunking, embedding model, retrieval defaults)
 - `GET /metrics` — Prometheus metrics (when enabled)
 
@@ -19,7 +20,8 @@ What is implemented now:
 
 - **API-key auth + scope enforcement.** Every ingest/retrieve/answer/profile call requires an API key whose grant covers the requested `service_name`/`tenant_id`/`collections`. See [Authentication](#authentication).
 - **Per-service config profiles.** Each service registers its own chunking, embedding model, and retrieval defaults. See [Config profiles](#config-profiles).
-- **MCP tool surface.** An MCP server exposes `retrieve`, `answer`, `ingest_document`, `configure_profile`, `get_profile`, and `health` as tools. See [MCP](#mcp-server).
+- **Collection/document deletion.** Scope-enforced deletion of ingested data by service/tenant/collection, with optional filters for finer targeting (e.g., by `document_id` or `source_label`). See [Delete](#post-documentsdelete).
+- **MCP tool surface.** An MCP server exposes `retrieve`, `answer`, `ingest_document`, `delete_collection`, `configure_profile`, `get_profile`, and `health` as tools. See [MCP](#mcp-server).
 - Metadata-aware ingestion and retrieval are the default runtime path; manual uploads are a thin adapter over the same ingest pipeline.
 - Full-answer and streaming-answer endpoints both reuse the same retrieval flow.
 - Config-driven backends: SQLite + on-disk Qdrant by default, or a remote Qdrant for shared deployments. See [Deployment](#deployment).
@@ -77,7 +79,7 @@ LOCAL_RAG_API_KEY=service-a-secret python -m app.mcp --transport stdio
 LOCAL_RAG_API_KEY=service-a-secret python -m app.mcp --transport streamable-http
 ```
 
-Tools: `retrieve`, `answer`, `ingest_document`, `configure_profile`, `get_profile`, `health`. The server process authenticates with `LOCAL_RAG_API_KEY`, so every tool call is scoped to that key's grant — each consuming agent runs its own MCP connection with its own key.
+Tools: `retrieve`, `answer`, `ingest_document`, `delete_collection`, `configure_profile`, `get_profile`, `health`. The server process authenticates with `LOCAL_RAG_API_KEY`, so every tool call is scoped to that key's grant — each consuming agent runs its own MCP connection with its own key.
 
 ## Error format
 
@@ -298,6 +300,75 @@ curl -X POST http://127.0.0.1:8000/documents/ingest \
     "collection": "documentation",
     "source_type": "pdf",
     "source_label": "api-docs.pdf"
+  }'
+```
+
+### `POST /documents/delete`
+
+Purpose: delete ingested chunks matching a scope. Covers collection-level purges, single-document removal, and filtered deletes through one endpoint.
+
+Content type: `application/json`
+
+Request body:
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `service_name` | string | yes | - | Required scope field |
+| `tenant_id` | string | yes | - | Required scope field |
+| `collections` | string[] | yes | - | Must contain at least one non-empty value |
+| `filters` | object | no | `{}` | Additional filters (e.g., `document_id`, `source_label`) |
+
+Filter rules:
+
+- `filters` cannot contain `service_name`, `tenant_id`, `collection`, or `collections`.
+- Those keys are reserved for scope enforcement.
+- Additional filter keys are matched against stored metadata.
+
+Example request — delete an entire collection:
+
+```json
+{
+  "service_name": "api-service",
+  "tenant_id": "tenant-456",
+  "collections": ["documentation"]
+}
+```
+
+Example request — delete a single document:
+
+```json
+{
+  "service_name": "api-service",
+  "tenant_id": "tenant-456",
+  "collections": ["documentation"],
+  "filters": {"document_id": "abc-123"}
+}
+```
+
+Success response:
+
+```json
+{
+  "deleted_count": 12
+}
+```
+
+Error behavior:
+
+- `422` for missing required fields or empty collections
+- `422` for reserved filter keys
+- `403` if the caller's API key does not cover the requested scope
+
+Example:
+
+```bash
+curl -X POST http://127.0.0.1:8000/documents/delete \
+  -H "X-API-Key: service-a-secret" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "service_name": "api-service",
+    "tenant_id": "tenant-456",
+    "collections": ["documentation"]
   }'
 ```
 
@@ -528,6 +599,7 @@ Useful files:
 - `app/api/schemas/schemas.py`: request/response schemas
 - `app/retrieval/`: retrieval core and scope policy
 - `app/ingest/`: ingest contracts and use case
+- `app/delete/`: delete contracts and use case
 - `tests/`: API and end-to-end behavior tests
 
 ## Project Structure

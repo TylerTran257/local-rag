@@ -12,6 +12,7 @@ from typing import Any
 from app.auth import ApiKeyRegistry, Principal, enforce_scope
 from app.auth.errors import AuthenticationError
 from app.composition import MetadataAwareRuntime, build_metadata_aware_runtime
+from app.delete.contracts import DeleteRequest
 from app.ingest.contracts import IngestDocument
 from app.profiles import ServiceProfile
 from app.retrieval import RetrievalScope, RetrieveRequest
@@ -217,6 +218,33 @@ class McpService:
             )
         )
         return {"chunk_count": result.chunk_count}
+
+    def delete_collection(
+        self,
+        principal: Principal,
+        *,
+        service_name: str,
+        tenant_id: str,
+        collections: list[str],
+        filters: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        enforce_scope(
+            principal,
+            service_name=service_name,
+            tenant_id=tenant_id,
+            collections=collections,
+        )
+        if self._runtime.delete_use_case is None:
+            raise RuntimeError("Delete use case is not configured")
+        result = self._runtime.delete_use_case.execute(
+            DeleteRequest(
+                service_name=service_name,
+                tenant_id=tenant_id,
+                collections=collections,
+                filters=filters or {},
+            )
+        )
+        return {"deleted_count": result.deleted_count}
 
     def configure_profile(
         self, principal: Principal, *, service_name: str, **overrides: Any

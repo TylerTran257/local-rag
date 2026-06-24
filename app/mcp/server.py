@@ -114,6 +114,23 @@ def ingest_document(
 
 
 @mcp.tool()
+def delete_collection(
+    service_name: str,
+    tenant_id: str,
+    collections: list[str],
+    filters: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Delete all chunks matching the given scope (service/tenant/collections)."""
+    return get_service().delete_collection(
+        _principal(),
+        service_name=service_name,
+        tenant_id=tenant_id,
+        collections=collections,
+        filters=filters,
+    )
+
+
+@mcp.tool()
 def configure_profile(
     service_name: str,
     embedding_model: str | None = None,

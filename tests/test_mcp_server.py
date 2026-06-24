@@ -10,6 +10,7 @@ from app.auth import ApiKeyRegistry
 from app.auth.errors import AuthenticationError, AuthorizationError
 from app.composition import MetadataAwareRuntime
 from app.db.database import Base
+from app.delete.contracts import DeleteResult
 from app.ingest.use_case import IngestResult
 from app.mcp import McpService
 from app.profiles.store import ProfileStore
@@ -61,6 +62,8 @@ def service(profile_store):
     )
     ingest_use_case = Mock()
     ingest_use_case.ingest_document.return_value = IngestResult(chunk_count=4)
+    delete_use_case = Mock()
+    delete_use_case.execute.return_value = DeleteResult(deleted_count=3)
     generation = Mock()
     generation.answer_question.return_value = "an answer"
 
@@ -69,6 +72,7 @@ def service(profile_store):
         ingest_use_case=ingest_use_case,
         gateway=Mock(),
         profile_store=profile_store,
+        delete_use_case=delete_use_case,
     )
     return McpService(runtime=runtime, generation_service=generation, registry=_registry())
 
@@ -145,6 +149,35 @@ class TestIngest:
                 collection="secret",
                 source_type="text",
                 source_label="f.txt",
+            )
+
+
+class TestDelete:
+    def test_delete_in_scope(self, service):
+        result = service.delete_collection(
+            _principal(service),
+            service_name="service-a",
+            tenant_id="tenant-1",
+            collections=["docs"],
+        )
+        assert result["deleted_count"] == 3
+
+    def test_delete_out_of_scope_raises(self, service):
+        with pytest.raises(AuthorizationError):
+            service.delete_collection(
+                _principal(service),
+                service_name="service-a",
+                tenant_id="tenant-1",
+                collections=["secret"],
+            )
+
+    def test_delete_wrong_service_raises(self, service):
+        with pytest.raises(AuthorizationError):
+            service.delete_collection(
+                _principal(service),
+                service_name="service-b",
+                tenant_id="tenant-1",
+                collections=["docs"],
             )
 
 

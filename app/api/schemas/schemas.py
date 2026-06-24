@@ -116,6 +116,32 @@ class StreamEvent(BaseModel):
     done: bool
 
 
+class DeleteCollectionRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    service_name: NonEmptyString
+    tenant_id: NonEmptyString
+    collections: list[NonEmptyString] = Field(min_length=1)
+    filters: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("filters")
+    @classmethod
+    def filters_must_not_override_scope(cls, value: dict[str, str]) -> dict[str, str]:
+        reserved = RESERVED_FILTER_KEYS.intersection(value)
+        if reserved:
+            raise ValueError(
+                f"Filter keys {sorted(reserved)} are reserved for scope enforcement "
+                "and cannot be set through filters"
+            )
+        return value
+
+
+class DeleteCollectionResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    deleted_count: int
+
+
 class ProfileUpsertRequest(BaseModel):
     """Create or update a service config profile.
 

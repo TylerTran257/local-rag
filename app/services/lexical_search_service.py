@@ -179,6 +179,25 @@ class LexicalSearchService:
             )
             session.commit()
 
+    def delete_by_scope(self, filters: dict[str, Any]) -> int:
+        where_clauses, params = self._build_filter_clauses(filters)
+        if not where_clauses:
+            raise ValueError("delete_by_scope requires at least one filter")
+        where_sql = " AND ".join(where_clauses)
+        with self.session_factory() as session:
+            result = session.execute(
+                text(f"SELECT COUNT(*) FROM {FTS_TABLE_NAME} WHERE {where_sql}"),
+                params,
+            )
+            count = result.scalar() or 0
+            if count > 0:
+                session.execute(
+                    text(f"DELETE FROM {FTS_TABLE_NAME} WHERE {where_sql}"),
+                    params,
+                )
+                session.commit()
+        return count
+
     def has_indexed_chunks(self) -> bool:
         """Return True if any chunks are indexed."""
         with self.session_factory() as session:

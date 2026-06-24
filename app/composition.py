@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.delete.use_case import DeleteUseCase
 from app.ingest.use_case import IngestUseCase
 from app.profiles.store import ProfileStore
 from app.retrieval import (
@@ -53,6 +54,7 @@ class MetadataAwareRuntime:
     # Always populated by ``build_metadata_aware_runtime``; defaulted so unit
     # tests can construct a runtime with mocked use cases.
     profile_store: ProfileStore | None = None
+    delete_use_case: DeleteUseCase | None = None
 
 
 def build_metadata_aware_runtime(
@@ -120,9 +122,17 @@ def build_metadata_aware_runtime(
         profile_store=resolved_profile_store,
     )
 
+    # --- Delete use case ---
+    delete_use_case = DeleteUseCase(
+        vector_store_service=resolved_vector_store,
+        lexical_search_service=resolved_lexical,
+        profile_store=resolved_profile_store,
+    )
+
     return MetadataAwareRuntime(
         retrieve_use_case=retrieve_use_case,
         ingest_use_case=ingest_use_case,
         gateway=gateway,
         profile_store=resolved_profile_store,
+        delete_use_case=delete_use_case,
     )
