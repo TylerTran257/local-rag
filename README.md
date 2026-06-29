@@ -23,7 +23,8 @@ What is implemented now:
 - **Collection/document deletion.** Scope-enforced deletion of ingested data by service/tenant/collection, with optional filters for finer targeting (e.g., by `document_id` or `source_label`). See [Delete](#post-documentsdelete).
 - **MCP tool surface.** An MCP server exposes `retrieve`, `answer`, `ingest_document`, `delete_collection`, `configure_profile`, `get_profile`, and `health` as tools. See [MCP](#mcp-server).
 - Metadata-aware ingestion and retrieval are the default runtime path; manual uploads are a thin adapter over the same ingest pipeline.
-- Full-answer and streaming-answer endpoints both reuse the same retrieval flow.
+- Ingest, retrieve, answer, and delete are use cases shared by both the REST API and the MCP tool surface, so the two cannot diverge in behavior.
+- The `/answer` and `/answer/stream` endpoints and the MCP `answer` tool all run one shared Answer use case, with a single no-grounded-answer fallback when retrieval returns nothing.
 - Config-driven backends: SQLite + on-disk Qdrant by default, or a remote Qdrant for shared deployments. See [Deployment](#deployment).
 - Uniform JSON error envelope and per-request `X-Trace-Id`. See [Error format](#error-format).
 
@@ -511,7 +512,7 @@ Behavior notes:
 Error behavior:
 
 - `422` for invalid retrieval request input
-- `500` if answer generation fails
+- `502` if answer generation fails (upstream generation dependency)
 - `500` if retrieval fails internally
 
 Example:
@@ -594,12 +595,16 @@ Current implementation centers on the metadata-aware runtime factory in `app/com
 Useful files:
 
 - `app/main.py`: app creation and router wiring
-- `app/composition.py`: runtime assembly
-- `app/api/routes/`: public HTTP endpoints
+- `app/composition.py`: runtime assembly (the shared use cases, wired once for REST and MCP)
+- `app/api/routes/`: public HTTP endpoints (thin adapters over the use cases)
+- `app/mcp/`: MCP tool surface over the same use cases
 - `app/api/schemas/schemas.py`: request/response schemas
-- `app/retrieval/`: retrieval core and scope policy
+- `app/retrieval/`: retrieval core, scope policy, and scope-to-filter translation
 - `app/ingest/`: ingest contracts and use case
+- `app/answer/`: answer use case (retrieve, generate, no-grounded-answer fallback)
 - `app/delete/`: delete contracts and use case
+- `app/profiles/`: per-service profiles and the resolver that maps a service to its profile and collection
+- `app/evals/`: golden eval harness, run through the production retrieval seam
 - `tests/`: API and end-to-end behavior tests
 
 ## Project Structure
