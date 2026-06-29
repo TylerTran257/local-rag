@@ -21,20 +21,6 @@ from app.retrieval import RetrievalScope, RetrieveRequest
 from app.retrieval.types import RetrievalMode
 from app.services.generation_service import GenerationService
 
-_CORE_CHUNK_METADATA_KEYS = frozenset(
-    {
-        "service_name",
-        "tenant_id",
-        "collection",
-        "source_type",
-        "source_label",
-        "document_id",
-        "original_filename",
-        "chunk_index",
-    }
-)
-
-
 def _chunk_to_dict(chunk: Any) -> dict[str, Any]:
     metadata = chunk.metadata
     return {
@@ -45,9 +31,7 @@ def _chunk_to_dict(chunk: Any) -> dict[str, Any]:
         "collection": metadata.get("collection", "unknown"),
         "service_name": metadata.get("service_name", "unknown"),
         "tenant_id": metadata.get("tenant_id", "unknown"),
-        "domain_metadata": {
-            k: v for k, v in metadata.items() if k not in _CORE_CHUNK_METADATA_KEYS
-        },
+        "domain_metadata": chunk.domain_metadata(),
     }
 
 

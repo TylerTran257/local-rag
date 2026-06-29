@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncIterator
+from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
@@ -15,28 +15,6 @@ from app.services.generation_service import GenerationServiceError
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-_CORE_CHUNK_METADATA_KEYS = frozenset(
-    {
-        "service_name",
-        "tenant_id",
-        "collection",
-        "source_type",
-        "source_label",
-        "document_id",
-        "original_filename",
-        "chunk_index",
-    }
-)
-
-
-def _extract_domain_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
-    """Return non-core metadata fields for API responses."""
-    return {
-        key: value
-        for key, value in metadata.items()
-        if key not in _CORE_CHUNK_METADATA_KEYS
-    }
 
 
 def _to_use_case_request(body: AnswerRequest) -> AnswerUseCaseRequest:
@@ -63,7 +41,7 @@ def _to_chunk_results(chunks) -> list[ChunkResult]:
             service_name=chunk.metadata.get("service_name", "unknown"),
             tenant_id=chunk.metadata.get("tenant_id", "unknown"),
             chunk_id=chunk.chunk_id,
-            domain_metadata=_extract_domain_metadata(chunk.metadata),
+            domain_metadata=chunk.domain_metadata(),
         )
         for chunk in chunks
     ]

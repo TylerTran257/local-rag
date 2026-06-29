@@ -641,3 +641,47 @@ def test_uuid_trace_id_generator():
     assert isinstance(trace_id2, str)
     assert trace_id1 != trace_id2
     assert len(trace_id1) == 36  # UUID format
+
+
+class TestRetrievedChunkDomainMetadata:
+    def _chunk(self, metadata: dict) -> RetrievedChunk:
+        return RetrievedChunk(
+            chunk_id="c1",
+            document_id="d1",
+            content="text",
+            score=1.0,
+            rank=0,
+            retrieval_mode=RetrievalMode.DENSE,
+            metadata=metadata,
+        )
+
+    def test_returns_only_non_core_keys(self):
+        chunk = self._chunk(
+            {
+                "service_name": "svc",
+                "tenant_id": "ten",
+                "collection": "docs",
+                "source_type": "text",
+                "source_label": "f.pdf",
+                "document_id": "d1",
+                "original_filename": "f.pdf",
+                "chunk_index": 0,
+                "topic": "platform",
+                "is_external": False,
+            }
+        )
+
+        assert chunk.domain_metadata() == {"topic": "platform", "is_external": False}
+
+    def test_empty_when_only_core_keys(self):
+        chunk = self._chunk(
+            {
+                "service_name": "svc",
+                "tenant_id": "ten",
+                "collection": "docs",
+                "source_type": "text",
+                "source_label": "f.pdf",
+            }
+        )
+
+        assert chunk.domain_metadata() == {}

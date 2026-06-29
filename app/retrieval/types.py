@@ -89,6 +89,22 @@ class EffectiveRetrieveRequest:
     correlation_id: str | None = None
 
 
+# Metadata keys that identify a chunk or carry scope/source bookkeeping. All
+# other metadata keys are domain metadata supplied by the ingesting service.
+CORE_CHUNK_METADATA_KEYS = frozenset(
+    {
+        "service_name",
+        "tenant_id",
+        "collection",
+        "source_type",
+        "source_label",
+        "document_id",
+        "original_filename",
+        "chunk_index",
+    }
+)
+
+
 @dataclass
 class RetrievedChunk:
     """A single piece of content returned from retrieval with normalized metadata."""
@@ -99,6 +115,14 @@ class RetrievedChunk:
     rank: int
     retrieval_mode: RetrievalMode
     metadata: dict[str, Any]
+
+    def domain_metadata(self) -> dict[str, Any]:
+        """Return the service-supplied (non-core) metadata for this chunk."""
+        return {
+            key: value
+            for key, value in self.metadata.items()
+            if key not in CORE_CHUNK_METADATA_KEYS
+        }
 
 
 @dataclass
