@@ -23,6 +23,10 @@ optionally generate grounded answers). It is exposed over REST and MCP.
 - **Collection-per-model** — each embedding model maps to its own Qdrant
   collection (dimensions cannot share a collection). The default model maps to
   the default collection.
+- **Profile resolver** — the single component that turns a `service_name` into
+  its resolved `(profile, collection)` pair. Ingest, retrieve, and delete all
+  resolve through it, so a document is read back and deleted with the same
+  model + collection it was written with.
 - **Gateway** — `MetadataAwareRetrievalGateway`, which executes scope-filtered
   dense/lexical/hybrid retrieval against the backends.
 - **Trace id** — per-request correlation id, returned in the `X-Trace-Id`

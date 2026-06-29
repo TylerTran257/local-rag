@@ -12,25 +12,12 @@ from app.ingest.contracts import (
     MetadataValidator,
     ValidatedMetadata,
 )
-from app.profiles import (
-    DEFAULT_CHUNK_OVERLAP,
-    DEFAULT_CHUNK_SIZE,
-    ServiceProfile,
-    collection_for,
-    default_profile,
-)
-from app.profiles.store import ProfileStore
+from app.profiles import ProfileResolver, ServiceProfile
 from app.services.embedding_service import EmbeddingService
 from app.services.lexical_search_service import LexicalSearchService
 from app.services.vector_store_service import DEFAULT_VECTOR_SIZE, VectorStoreService
 
 logger = logging.getLogger(__name__)
-
-# Fallback splitter used when no profile store is wired (preserves prior
-# default chunking for callers that construct the use case directly).
-text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=DEFAULT_CHUNK_SIZE, chunk_overlap=DEFAULT_CHUNK_OVERLAP
-)
 
 
 def _splitter_for(profile: ServiceProfile) -> RecursiveCharacterTextSplitter:
@@ -64,17 +51,12 @@ class IngestUseCase:
         embedding_service: EmbeddingService,
         vector_store_service: VectorStoreService,
         lexical_search_service: LexicalSearchService,
-        profile_store: ProfileStore | None = None,
+        profile_resolver: ProfileResolver | None = None,
     ):
         self.embedding_service = embedding_service
         self.vector_store_service = vector_store_service
         self.lexical_search_service = lexical_search_service
-        self.profile_store = profile_store
-
-    def _resolve_profile(self, service_name: str) -> ServiceProfile:
-        if self.profile_store is None:
-            return default_profile(service_name)
-        return self.profile_store.get(service_name)
+        self.profile_resolver = profile_resolver or ProfileResolver(None)
 
     def ingest_document(self, document: IngestDocument) -> IngestResult:
         """
@@ -106,8 +88,8 @@ class IngestUseCase:
             )
             raise EmptyDocumentError(source_label=document.source_label)
 
-        profile = self._resolve_profile(document.service_name)
-        chunk_texts = _splitter_for(profile).split_text(document.text)
+        resolved = self.profile_resolver.resolve(document.service_name)
+        chunk_texts = _splitter_for(resolved.profile).split_text(document.text)
 
         if not chunk_texts:
             logger.info(
@@ -137,7 +119,8 @@ class IngestUseCase:
             original_filename=document.source_label,
             chunks=chunks,
             metadata_dict=self._metadata_to_dict(validated_metadata),
-            profile=profile,
+            profile=resolved.profile,
+            collection_name=resolved.collection,
         )
 
     def ingest_chunks(self, chunks: list[IngestChunk]) -> IngestResult:
@@ -168,7 +151,7 @@ class IngestUseCase:
 
         # A batch shares one embedding profile; resolve from the first chunk's
         # service (batches are expected to be single-service).
-        profile = self._resolve_profile(chunks[0].service_name)
+        resolved = self.profile_resolver.resolve(chunks[0].service_name)
 
         # Generate document ID for this batch
         document_id = str(uuid4())
@@ -189,7 +172,8 @@ class IngestUseCase:
             original_filename=chunks[0].source_label,
             chunks=document_chunks,
             metadata_dict=metadata_dicts,
-            profile=profile,
+            profile=resolved.profile,
+            collection_name=resolved.collection,
         )
 
     def _validate_and_prepare_metadata(
@@ -233,6 +217,7 @@ class IngestUseCase:
         chunks: list[DocumentChunk],
         metadata_dict: dict | list[dict],
         profile: ServiceProfile,
+        collection_name: str,
     ) -> IngestResult:
         """Embed chunks and store in both backends with metadata.
 
@@ -250,7 +235,6 @@ class IngestUseCase:
             chunk_texts, model_name=profile.embedding_model
         )
 
-        collection_name = collection_for(profile.embedding_model)
         vector_size = len(embeddings[0]) if embeddings else DEFAULT_VECTOR_SIZE
         self.vector_store_service.ensure_collection(collection_name, vector_size)
 

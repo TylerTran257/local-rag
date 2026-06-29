@@ -6,6 +6,7 @@ from app.profiles.models import (
     ServiceProfile,
     default_profile,
 )
+from app.profiles.resolver import ProfileResolver, ResolvedProfile
 from app.profiles.store import ProfileEmbeddingModelImmutableError, ProfileStore
 
 __all__ = [
@@ -16,4 +17,6 @@ __all__ = [
     "ProfileStore",
     "ProfileEmbeddingModelImmutableError",
     "collection_for",
+    "ProfileResolver",
+    "ResolvedProfile",
 ]

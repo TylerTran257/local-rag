@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from app.answer.use_case import AnswerUseCase
 from app.delete.use_case import DeleteUseCase
 from app.ingest.use_case import IngestUseCase
+from app.profiles import ProfileResolver
 from app.profiles.store import ProfileStore
 from app.retrieval import (
     NamespacePolicy,
@@ -93,12 +94,16 @@ def build_metadata_aware_runtime(
     resolved_lexical = lexical_search_service or LexicalSearchService()
     resolved_profile_store = profile_store or ProfileStore()
 
+    # Single resolver shared by ingest, retrieve, and delete so all paths turn a
+    # service_name into the same (profile, collection) pair.
+    profile_resolver = ProfileResolver(resolved_profile_store)
+
     # --- Retrieval gateway ---
     gateway = MetadataAwareRetrievalGateway(
         vector_store_service=resolved_vector_store,
         lexical_search_service=resolved_lexical,
         embedding_service=resolved_embedding,
-        profile_store=resolved_profile_store,
+        profile_resolver=profile_resolver,
     )
 
     # --- Retrieval use case ---
@@ -123,14 +128,14 @@ def build_metadata_aware_runtime(
         embedding_service=resolved_embedding,
         vector_store_service=resolved_vector_store,
         lexical_search_service=resolved_lexical,
-        profile_store=resolved_profile_store,
+        profile_resolver=profile_resolver,
     )
 
     # --- Delete use case ---
     delete_use_case = DeleteUseCase(
         vector_store_service=resolved_vector_store,
         lexical_search_service=resolved_lexical,
-        profile_store=resolved_profile_store,
+        profile_resolver=profile_resolver,
     )
 
     # --- Answer use case ---

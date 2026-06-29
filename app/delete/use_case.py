@@ -3,8 +3,7 @@ from __future__ import annotations
 import logging
 
 from app.delete.contracts import DeleteRequest, DeleteResult
-from app.profiles import ServiceProfile, collection_for, default_profile
-from app.profiles.store import ProfileStore
+from app.profiles import ProfileResolver
 from app.retrieval.types import RetrievalScope
 from app.services.lexical_search_service import LexicalSearchService
 from app.services.vector_store_service import VectorStoreService
@@ -17,20 +16,16 @@ class DeleteUseCase:
         self,
         vector_store_service: VectorStoreService,
         lexical_search_service: LexicalSearchService,
-        profile_store: ProfileStore | None = None,
+        profile_resolver: ProfileResolver | None = None,
     ):
         self.vector_store_service = vector_store_service
         self.lexical_search_service = lexical_search_service
-        self.profile_store = profile_store
-
-    def _resolve_profile(self, service_name: str) -> ServiceProfile:
-        if self.profile_store is None:
-            return default_profile(service_name)
-        return self.profile_store.get(service_name)
+        self.profile_resolver = profile_resolver or ProfileResolver(None)
 
     def execute(self, request: DeleteRequest) -> DeleteResult:
-        profile = self._resolve_profile(request.service_name)
-        qdrant_collection = collection_for(profile.embedding_model)
+        qdrant_collection = self.profile_resolver.resolve(
+            request.service_name
+        ).collection
 
         scope = RetrievalScope(
             service_name=request.service_name,

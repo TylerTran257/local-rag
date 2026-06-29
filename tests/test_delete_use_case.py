@@ -25,7 +25,6 @@ def use_case(vector_store, lexical_search):
     return DeleteUseCase(
         vector_store_service=vector_store,
         lexical_search_service=lexical_search,
-        profile_store=None,
     )
 
 

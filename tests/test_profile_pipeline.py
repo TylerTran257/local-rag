@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from app.db.database import Base
 from app.ingest.contracts import IngestDocument
 from app.ingest.use_case import IngestUseCase
-from app.profiles import ServiceProfile, collection_for, default_profile
+from app.profiles import ProfileResolver, ServiceProfile, collection_for, default_profile
 from app.profiles.store import ProfileStore
 from app.settings import settings
 
@@ -36,7 +36,7 @@ def _use_case(profile_store, embedding):
         embedding_service=embedding,
         vector_store_service=Mock(),
         lexical_search_service=Mock(),
-        profile_store=profile_store,
+        profile_resolver=ProfileResolver(profile_store),
     )
 
 
@@ -82,7 +82,7 @@ def test_embedding_model_selects_collection_and_model(profile_store):
         embedding_service=embedding,
         vector_store_service=vector_store,
         lexical_search_service=Mock(),
-        profile_store=profile_store,
+        profile_resolver=ProfileResolver(profile_store),
     )
 
     profile_store.upsert(

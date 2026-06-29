@@ -13,8 +13,7 @@ from app.retrieval.types import (
     RetrievalMode,
     RetrievedChunk,
 )
-from app.profiles import collection_for, default_profile
-from app.profiles.store import ProfileStore
+from app.profiles import ProfileResolver
 from app.services.embedding_service import EmbeddingService
 from app.services.lexical_search_service import LexicalSearchService
 from app.services.vector_store_service import VectorStoreService
@@ -40,21 +39,17 @@ class MetadataAwareRetrievalGateway:
         vector_store_service: VectorStoreService,
         lexical_search_service: LexicalSearchService,
         embedding_service: EmbeddingService,
-        profile_store: ProfileStore | None = None,
+        profile_resolver: ProfileResolver | None = None,
     ):
         self.vector_store_service = vector_store_service
         self.lexical_search_service = lexical_search_service
         self.embedding_service = embedding_service
-        self.profile_store = profile_store
+        self.profile_resolver = profile_resolver or ProfileResolver(None)
 
     def _resolve_embedding_target(self, service_name: str) -> tuple[str, str]:
         """Return ``(embedding_model, collection_name)`` for a service."""
-        profile = (
-            self.profile_store.get(service_name)
-            if self.profile_store is not None
-            else default_profile(service_name)
-        )
-        return profile.embedding_model, collection_for(profile.embedding_model)
+        resolved = self.profile_resolver.resolve(service_name)
+        return resolved.profile.embedding_model, resolved.collection
 
     def retrieve(self, request: EffectiveRetrieveRequest) -> RetrievalGatewayResult:
         """
