@@ -17,26 +17,15 @@ class FakeEngine:
         return None
 
 
-class FakeDocumentService:
+class FakeRig:
     def __init__(self, contexts_by_query):
         self.contexts_by_query = contexts_by_query
         self.ingested_documents = []
 
-    def create_document_from_path(self, file_path, original_filename=None):
-        document_id = original_filename or file_path.name
-        self.ingested_documents.append(document_id)
-        return {"document_id": document_id}
+    def ingest(self, file_path, original_filename):
+        self.ingested_documents.append(original_filename)
 
-    def extract_text(self, document_id):
-        return {"document_id": document_id, "status": "text_extracted"}
-
-    def chunk_document(self, document_id):
-        return {"document_id": document_id, "status": "chunked", "chunk_count": 1}
-
-    def embed_document(self, document_id):
-        return {"document_id": document_id, "status": "embedded", "embedding_count": 1}
-
-    def retrieve_context(self, query, limit):
+    def retrieve(self, query, limit):
         return self.contexts_by_query[query][:limit]
 
 
@@ -109,7 +98,7 @@ def test_run_golden_eval_filters_examples_and_cleans_up_workspace(tmp_path):
         },
     )
 
-    fake_document_service = FakeDocumentService(
+    fake_rig = FakeRig(
         {
             "first": [_make_context("doc-a.txt")],
             "second": [_make_context("doc-b.txt")],
@@ -120,11 +109,11 @@ def test_run_golden_eval_filters_examples_and_cleans_up_workspace(tmp_path):
         eval_set_path=eval_path,
         repo_root=tmp_path,
         example_ids=["second-example"],
-        document_service_factory=lambda workspace: (fake_document_service, FakeEngine()),
+        rig_factory=lambda workspace: (fake_rig, FakeEngine()),
     )
 
     assert [result.example_id for result in report.example_results] == ["second-example"]
-    assert fake_document_service.ingested_documents == ["doc-a.txt", "doc-b.txt"]
+    assert fake_rig.ingested_documents == ["doc-a.txt", "doc-b.txt"]
     assert report.retrieval_passed is True
     assert report.workspace_path.exists() is False
 
@@ -149,8 +138,8 @@ def test_run_golden_eval_keeps_artifacts_when_requested(tmp_path):
         eval_set_path=eval_path,
         repo_root=tmp_path,
         keep_artifacts=True,
-        document_service_factory=lambda workspace: (
-            FakeDocumentService({"first": [_make_context("doc.txt")]}),
+        rig_factory=lambda workspace: (
+            FakeRig({"first": [_make_context("doc.txt")]}),
             FakeEngine(),
         ),
     )
@@ -179,8 +168,8 @@ def test_run_golden_eval_reports_retrieval_failure(tmp_path):
     report = run_golden_eval(
         eval_set_path=eval_path,
         repo_root=tmp_path,
-        document_service_factory=lambda workspace: (
-            FakeDocumentService({"first": [_make_context("doc-b.txt")]}),
+        rig_factory=lambda workspace: (
+            FakeRig({"first": [_make_context("doc-b.txt")]}),
             FakeEngine(),
         ),
     )
@@ -222,8 +211,8 @@ def test_run_golden_eval_runs_informational_answer_eval_with_fake_generation_ser
         eval_set_path=eval_path,
         repo_root=tmp_path,
         with_answer_eval=True,
-        document_service_factory=lambda workspace: (
-            FakeDocumentService({"first": [_make_context("doc.txt")]}),
+        rig_factory=lambda workspace: (
+            FakeRig({"first": [_make_context("doc.txt")]}),
             FakeEngine(),
         ),
         generation_service_factory=FakeGenerationService,

@@ -364,7 +364,7 @@ class MetadataAwareRetrievalGateway:
         """
         Fuse dense and lexical rankings using reciprocal rank fusion.
 
-        Uses same RRF algorithm as DocumentService with k=60 from settings.
+        Uses k from settings (``fusion_rrf_k``, default 60).
 
         Args:
             dense_results: Results from vector store

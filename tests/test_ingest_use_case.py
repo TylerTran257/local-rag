@@ -341,22 +341,3 @@ class TestMetadataPropagation:
         lexical_metadata = mock_lexical_search.index_document_chunks.call_args.kwargs["metadata"]
 
         assert vector_metadata == lexical_metadata
-
-
-class TestBackwardCompatibility:
-    """Tests ensuring existing DocumentService pipeline still works."""
-
-    def test_document_service_pipeline_still_works(self):
-        """Verify existing DocumentService.run_indexing_pipeline unchanged."""
-        # This is an integration smoke test
-        # The actual DocumentService methods don't need modification
-        # This test documents that the new IngestUseCase is a parallel path
-        from app.services.document_service import DocumentService
-
-        # DocumentService should still exist and have its methods
-        assert hasattr(DocumentService, "run_indexing_pipeline")
-        assert hasattr(DocumentService, "chunk_document")
-        assert hasattr(DocumentService, "embed_document")
-
-        # The new IngestUseCase is a separate, parallel ingestion path
-        # Both can coexist

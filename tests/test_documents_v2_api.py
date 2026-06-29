@@ -18,12 +18,6 @@ def mock_ingest_use_case():
 
 
 @pytest.fixture
-def fake_document_service():
-    from app.services.document_service import DocumentService
-    return Mock(spec=DocumentService)
-
-
-@pytest.fixture
 def fake_generation_service():
     from app.services.generation_service import GenerationService
     return Mock(spec=GenerationService)

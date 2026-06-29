@@ -503,8 +503,8 @@ class TestBackwardCompatibility:
     """Tests for backward compatibility with existing code."""
 
     def test_existing_index_call_path_works(self, lexical_service, sample_chunks):
-        """Verify DocumentService.chunk_document call path still works."""
-        # This simulates the existing call from DocumentService
+        """Verify the index_document_chunks call path still works."""
+        # This simulates the call from IngestUseCase
         lexical_service.index_document_chunks(
             document_id="doc-1",
             original_filename="legacy.txt",

@@ -6,7 +6,7 @@ from typing import Callable, Sequence
 from app.evals.answer_eval import AnswerEvaluation, evaluate_answer_or_skip
 from app.evals.contracts import GoldenEvalSet, SeedExample, load_golden_eval_set, select_examples
 from app.evals.scoring import RetrievalScore, score_retrieval
-from app.evals.workspace import build_eval_document_service, create_eval_workspace
+from app.evals.workspace import build_eval_rig, create_eval_workspace
 from app.services.generation_service import GenerationService, GenerationServiceError
 
 DEFAULT_RETRIEVAL_LIMIT = 3
@@ -44,19 +44,15 @@ def default_eval_set_path(repo_root: Path) -> Path:
 
 
 def ingest_eval_corpus(
-    document_service,
+    rig,
     eval_set: GoldenEvalSet,
     repo_root: Path,
 ) -> None:
     for corpus_document in eval_set.corpus_documents:
-        document = document_service.create_document_from_path(
+        rig.ingest(
             repo_root / corpus_document,
             original_filename=corpus_document,
         )
-        document_id = document["document_id"]
-        document_service.extract_text(document_id)
-        document_service.chunk_document(document_id)
-        document_service.embed_document(document_id)
 
 
 def ensure_generation_available(generation_service) -> None:
@@ -74,12 +70,12 @@ def ensure_generation_available(generation_service) -> None:
 
 
 def _evaluate_seed_example(
-    document_service,
+    rig,
     example: SeedExample,
     with_answer_eval: bool,
     generation_service,
 ) -> SeedExampleRunResult:
-    contexts = document_service.retrieve_context(example.query, DEFAULT_RETRIEVAL_LIMIT)
+    contexts = rig.retrieve(example.query, DEFAULT_RETRIEVAL_LIMIT)
     retrieval_result = score_retrieval(
         expected_documents=example.expected_documents,
         contexts=contexts,
@@ -113,7 +109,7 @@ def run_golden_eval(
     example_ids: Sequence[str] | None = None,
     with_answer_eval: bool = False,
     keep_artifacts: bool = False,
-    document_service_factory=build_eval_document_service,
+    rig_factory=build_eval_rig,
     generation_service_factory: Callable[[], object] = GenerationService,
 ) -> GoldenEvalRunReport:
     resolved_repo_root = repo_root or default_repo_root()
@@ -122,10 +118,10 @@ def run_golden_eval(
     examples = select_examples(eval_set, example_ids)
 
     with create_eval_workspace(keep_artifacts=keep_artifacts) as workspace:
-        document_service, engine = document_service_factory(workspace)
+        rig, engine = rig_factory(workspace)
 
         try:
-            ingest_eval_corpus(document_service, eval_set, resolved_repo_root)
+            ingest_eval_corpus(rig, eval_set, resolved_repo_root)
 
             generation_service = None
             if with_answer_eval:
@@ -134,7 +130,7 @@ def run_golden_eval(
 
             example_results = tuple(
                 _evaluate_seed_example(
-                    document_service=document_service,
+                    rig=rig,
                     example=example,
                     with_answer_eval=with_answer_eval,
                     generation_service=generation_service,
