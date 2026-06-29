@@ -4,6 +4,7 @@ import logging
 
 from app.delete.contracts import DeleteRequest, DeleteResult
 from app.profiles import ProfileResolver
+from app.retrieval.scope_filters import lexical_filters_for
 from app.retrieval.types import RetrievalScope
 from app.services.lexical_search_service import LexicalSearchService
 from app.services.vector_store_service import VectorStoreService
@@ -38,13 +39,7 @@ class DeleteUseCase:
             scope, collection_name=qdrant_collection
         )
 
-        lexical_filters = {
-            "service_name": request.service_name,
-            "tenant_id": request.tenant_id,
-            "collections": request.collections,
-            **{k: v for k, v in request.filters.items()},
-        }
-        self.lexical_search_service.delete_by_scope(lexical_filters)
+        self.lexical_search_service.delete_by_scope(lexical_filters_for(scope))
 
         logger.info(
             "event=delete_completed service_name=%s tenant_id=%s collections=%s deleted_count=%s",

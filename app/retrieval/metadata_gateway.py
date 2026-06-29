@@ -14,6 +14,7 @@ from app.retrieval.types import (
     RetrievedChunk,
 )
 from app.profiles import ProfileResolver
+from app.retrieval.scope_filters import lexical_filters_for
 from app.services.embedding_service import EmbeddingService
 from app.services.lexical_search_service import LexicalSearchService
 from app.services.vector_store_service import VectorStoreService
@@ -150,7 +151,7 @@ class MetadataAwareRetrievalGateway:
         )
 
         # Build filters dict for diagnostics
-        filters = self._build_filters_dict(request.validated_scope)
+        filters = lexical_filters_for(request.validated_scope)
 
         # Normalize results
         chunks = [
@@ -179,7 +180,7 @@ class MetadataAwareRetrievalGateway:
     ) -> RetrievalGatewayResult:
         """Execute lexical retrieval with scope filters."""
         # Translate scope to filters
-        filters = self._build_filters(request.validated_scope)
+        filters = lexical_filters_for(request.validated_scope)
 
         # Query lexical search
         results = self.lexical_search_service.search(
@@ -222,7 +223,7 @@ class MetadataAwareRetrievalGateway:
         query_filter = self.vector_store_service.build_query_filter(
             request.validated_scope
         )
-        lexical_filters = self._build_filters(request.validated_scope)
+        lexical_filters = lexical_filters_for(request.validated_scope)
 
         # Dense retrieval
         query_embedding = self.embedding_service.embed_text(
@@ -254,7 +255,7 @@ class MetadataAwareRetrievalGateway:
         ]
 
         # Build diagnostics
-        filters_dict = self._build_filters_dict(request.validated_scope)
+        filters_dict = lexical_filters_for(request.validated_scope)
         diagnostics = self._build_diagnostics(
             retrieval_mode="hybrid",
             backend_names=["vector", "lexical"],
@@ -271,36 +272,6 @@ class MetadataAwareRetrievalGateway:
             warnings=[],
             diagnostics=diagnostics,
         )
-
-    def _build_filters(self, scope: Any) -> dict[str, Any]:
-        """
-        Translate validated scope to lexical search filters.
-
-        Returns dict with:
-        - service_name: scope enforcement
-        - tenant_id: scope enforcement
-        - collections: list of collections (special key mapped to "collection" field)
-        - Additional scope.filters fields pass through
-        """
-        reserved_keys = {"service_name", "tenant_id", "collections", "collection"}
-
-        filters = {
-            "service_name": scope.service_name,
-            "tenant_id": scope.tenant_id,
-            "collections": scope.collections,
-        }
-
-        # Merge additional filters, never letting them shadow the
-        # scope-enforcement keys above
-        for key, value in (scope.filters or {}).items():
-            if key not in reserved_keys:
-                filters[key] = value
-
-        return filters
-
-    def _build_filters_dict(self, scope: Any) -> dict[str, Any]:
-        """Build a dict representation of filters for diagnostics."""
-        return self._build_filters(scope)
 
     def _build_diagnostics(self, **kwargs: Any) -> dict[str, Any]:
         """Build diagnostics dict from provided fields."""
