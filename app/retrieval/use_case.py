@@ -2,6 +2,7 @@
 import logging
 from dataclasses import dataclass
 from time import perf_counter
+from typing import Literal
 
 from app.retrieval.types import (
     RetrieveRequest,
@@ -12,7 +13,6 @@ from app.retrieval.types import (
     RetrievalTrace,
     TraceStatus,
     FailureStage,
-    RetrievalMode,
 )
 from app.retrieval.errors import (
     RetrievalError,
@@ -40,6 +40,146 @@ class RetrieveResult:
     trace_id: str | None = None
 
 
+class _TracedRetrieval:
+    """Owns a single retrieval's trace: id, timing, current stage, and emission.
+
+    Used as a context manager around the orchestration. The body advances the
+    current ``stage`` and, on the happy path, calls ``record_success``. On exit
+    with an error this:
+
+    - stamps the trace_id onto any ``RetrievalError`` and emits a failed trace
+      for the current stage, then lets it propagate;
+    - at the gateway stage only, wraps an unexpected exception in
+      ``RetrievalExecutionError`` (and emits a failed trace);
+    - otherwise lets unexpected exceptions propagate untraced.
+
+    Trace emission is best-effort: a failing sink is logged, never raised.
+    """
+
+    def __init__(
+        self,
+        request: RetrieveRequest,
+        clock: Clock,
+        trace_id_generator: TraceIdGenerator,
+        trace_sink: RetrievalTraceSink,
+    ) -> None:
+        self._request = request
+        self._clock = clock
+        self._trace_sink = trace_sink
+        self.trace_id = trace_id_generator.generate()
+        self._start_time = clock.now()
+        self._start_perf = perf_counter()
+        self._stage: FailureStage | None = None
+        # Summary before query normalization; replaced once validation passes.
+        self._summary: dict = {
+            "query": request.query,
+            "retrieval_mode": request.retrieval_mode.value,
+            "limit": request.limit,
+            "service_name": request.scope.service_name,
+            "tenant_id": request.scope.tenant_id,
+        }
+        # Partial result carried into a post-gateway failure trace.
+        self._result_count = 0
+        self._warnings: list[RetrievalWarning] = []
+
+    def stage(self, stage: FailureStage) -> None:
+        self._stage = stage
+
+    def set_summary(self, summary: dict) -> None:
+        self._summary = summary
+
+    def set_partial(self, *, result_count: int, warnings: list[RetrievalWarning]) -> None:
+        """Record gateway results so a later failure trace reflects them."""
+        self._result_count = result_count
+        self._warnings = warnings
+
+    def record_success(
+        self,
+        *,
+        result_count: int,
+        warnings: list[RetrievalWarning],
+        diagnostics: dict | None = None,
+    ) -> None:
+        self._emit(
+            TraceStatus.SUCCESS,
+            failure_stage=None,
+            result_count=result_count,
+            warnings=warnings,
+            diagnostics=diagnostics,
+        )
+
+    def __enter__(self) -> "_TracedRetrieval":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> Literal[False]:
+        if exc is None:
+            return False
+
+        if isinstance(exc, RetrievalError):
+            exc.trace_id = self.trace_id
+            self._emit_failed()
+            return False
+
+        # Unexpected exceptions are only traced + wrapped at the gateway stage;
+        # elsewhere they propagate untouched (preserving prior behavior).
+        if self._stage == FailureStage.GATEWAY_EXECUTION:
+            self._emit_failed()
+            raise RetrievalExecutionError(
+                trace_id=self.trace_id,
+                internal_message=f"Gateway execution failed: {str(exc)}",
+                details={"exception_type": type(exc).__name__, "exception_message": str(exc)},
+            )
+
+        return False
+
+    def _emit_failed(self) -> None:
+        self._emit(
+            TraceStatus.FAILED,
+            failure_stage=self._stage,
+            result_count=self._result_count,
+            warnings=self._warnings,
+        )
+
+    def _emit(
+        self,
+        status: TraceStatus,
+        *,
+        failure_stage: FailureStage | None,
+        result_count: int,
+        warnings: list[RetrievalWarning],
+        diagnostics: dict | None = None,
+    ) -> None:
+        end_time = self._clock.now()
+        duration_ms = round((perf_counter() - self._start_perf) * 1000, 2)
+
+        trace = RetrievalTrace(
+            trace_id=self.trace_id,
+            correlation_id=self._request.correlation_id,
+            status=status,
+            failure_stage=failure_stage,
+            request_summary=self._summary,
+            timing={
+                "start": self._start_time.isoformat(),
+                "end": end_time.isoformat(),
+                "duration_ms": duration_ms,
+            },
+            result_count=result_count,
+            warnings=warnings,
+            diagnostics=diagnostics or {},
+        )
+
+        try:
+            self._trace_sink.emit(trace)
+        except Exception as e:
+            logger.warning(
+                "Failed to emit %s trace trace_id=%s error=%s",
+                status.value,
+                self.trace_id,
+                str(e),
+                exc_info=True,
+            )
+
+
 class RetrieveUseCase:
     """Central orchestrator for retrieval operations.
 
@@ -63,56 +203,22 @@ class RetrieveUseCase:
 
     def execute(self, request: RetrieveRequest) -> RetrieveResult:
         """Execute retrieval with validation, scope enforcement, and tracing."""
-        trace_id = self.trace_id_generator.generate()
-        start_time = self.clock.now()
-        start_perf = perf_counter()
-
-        try:
+        with _TracedRetrieval(
+            request, self.clock, self.trace_id_generator, self.trace_sink
+        ) as trace:
             # Validate request
-            try:
-                normalized_query, original_query = self._normalize_and_validate_query(
-                    request.query, trace_id
-                )
-                self._validate_limit(request.limit, trace_id)
-            except InvalidRetrievalRequestError as e:
-                # Request validation failed - emit trace before re-raising
-                self._emit_failed_trace(
-                    trace_id=trace_id,
-                    correlation_id=request.correlation_id,
-                    request_summary={
-                        "query": request.query,
-                        "retrieval_mode": request.retrieval_mode.value,
-                        "limit": request.limit,
-                        "service_name": request.scope.service_name,
-                        "tenant_id": request.scope.tenant_id,
-                    },
-                    start_time=start_time,
-                    start_perf=start_perf,
-                    result_count=0,
-                    warnings=[],
-                    failure_stage=FailureStage.REQUEST_VALIDATION,
-                )
-                raise
+            trace.stage(FailureStage.REQUEST_VALIDATION)
+            normalized_query, original_query = self._normalize_and_validate_query(
+                request.query, trace.trace_id
+            )
+            self._validate_limit(request.limit, trace.trace_id)
+            trace.set_summary(
+                self._build_request_summary(original_query, normalized_query, request)
+            )
 
             # Evaluate scope
-            try:
-                scope_decision = self.scope_policy.evaluate(request.scope)
-            except RetrievalError as e:
-                # Re-raise with proper trace_id and failure stage
-                e.trace_id = trace_id
-                self._emit_failed_trace(
-                    trace_id=trace_id,
-                    correlation_id=request.correlation_id,
-                    request_summary=self._build_request_summary(
-                        original_query, normalized_query, request
-                    ),
-                    start_time=start_time,
-                    start_perf=start_perf,
-                    result_count=0,
-                    warnings=[],
-                    failure_stage=FailureStage.SCOPE_POLICY,
-                )
-                raise
+            trace.stage(FailureStage.SCOPE_POLICY)
+            scope_decision = self.scope_policy.evaluate(request.scope)
 
             # Build effective request
             effective_request = EffectiveRetrieveRequest(
@@ -125,76 +231,22 @@ class RetrieveUseCase:
             )
 
             # Execute retrieval through gateway
-            try:
-                gateway_result = self.gateway.retrieve(effective_request)
-            except RetrievalError as e:
-                # Domain error from gateway - propagate with proper trace_id
-                e.trace_id = trace_id
-                self._emit_failed_trace(
-                    trace_id=trace_id,
-                    correlation_id=request.correlation_id,
-                    request_summary=self._build_request_summary(
-                        original_query, normalized_query, request
-                    ),
-                    start_time=start_time,
-                    start_perf=start_perf,
-                    result_count=0,
-                    warnings=[],
-                    failure_stage=FailureStage.GATEWAY_EXECUTION,
-                )
-                raise
-            except Exception as e:
-                # Unexpected exception - wrap in RetrievalExecutionError
-                self._emit_failed_trace(
-                    trace_id=trace_id,
-                    correlation_id=request.correlation_id,
-                    request_summary=self._build_request_summary(
-                        original_query, normalized_query, request
-                    ),
-                    start_time=start_time,
-                    start_perf=start_perf,
-                    result_count=0,
-                    warnings=[],
-                    failure_stage=FailureStage.GATEWAY_EXECUTION,
-                )
-                raise RetrievalExecutionError(
-                    trace_id=trace_id,
-                    internal_message=f"Gateway execution failed: {str(e)}",
-                    details={"exception_type": type(e).__name__, "exception_message": str(e)},
-                )
+            trace.stage(FailureStage.GATEWAY_EXECUTION)
+            gateway_result = self.gateway.retrieve(effective_request)
 
-            # Post-validate chunks
-            try:
-                self._post_validate_chunks(
-                    gateway_result.chunks, scope_decision.validated_scope, trace_id
-                )
-            except RetrievedChunkValidationError as e:
-                self._emit_failed_trace(
-                    trace_id=trace_id,
-                    correlation_id=request.correlation_id,
-                    request_summary=self._build_request_summary(
-                        original_query, normalized_query, request
-                    ),
-                    start_time=start_time,
-                    start_perf=start_perf,
-                    result_count=len(gateway_result.chunks),
-                    warnings=gateway_result.warnings,
-                    failure_stage=FailureStage.POST_VALIDATION,
-                )
-                raise
+            # Post-validate chunks (a failure here reports the gateway results)
+            trace.stage(FailureStage.POST_VALIDATION)
+            trace.set_partial(
+                result_count=len(gateway_result.chunks),
+                warnings=gateway_result.warnings,
+            )
+            self._post_validate_chunks(
+                gateway_result.chunks, scope_decision.validated_scope, trace.trace_id
+            )
 
-            # Merge warnings from gateway and scope decision
+            # Merge warnings from gateway and scope decision, emit success trace
             all_warnings = list(scope_decision.warnings) + list(gateway_result.warnings)
-
-            # Emit success trace with gateway diagnostics
-            self._emit_success_trace(
-                trace_id=trace_id,
-                correlation_id=request.correlation_id,
-                request_summary=self._build_request_summary(
-                    original_query, normalized_query, request
-                ),
-                start_time=start_time,
-                start_perf=start_perf,
+            trace.record_success(
                 result_count=len(gateway_result.chunks),
                 warnings=all_warnings,
                 diagnostics=gateway_result.diagnostics,
@@ -203,12 +255,8 @@ class RetrieveUseCase:
             return RetrieveResult(
                 chunks=gateway_result.chunks,
                 warnings=all_warnings,
-                trace_id=trace_id,
+                trace_id=trace.trace_id,
             )
-
-        except RetrievalError:
-            # Domain errors already have trace emitted - just re-raise
-            raise
 
     def _normalize_and_validate_query(
         self, query: str, trace_id: str
@@ -343,85 +391,3 @@ class RetrieveUseCase:
             "service_name": request.scope.service_name,
             "tenant_id": request.scope.tenant_id,
         }
-
-    def _emit_success_trace(
-        self,
-        trace_id: str,
-        correlation_id: str | None,
-        request_summary: dict,
-        start_time,
-        start_perf: float,
-        result_count: int,
-        warnings: list[RetrievalWarning],
-        diagnostics: dict | None = None,
-    ) -> None:
-        """Emit a successful retrieval trace."""
-        end_time = self.clock.now()
-        duration_ms = round((perf_counter() - start_perf) * 1000, 2)
-
-        trace = RetrievalTrace(
-            trace_id=trace_id,
-            correlation_id=correlation_id,
-            status=TraceStatus.SUCCESS,
-            failure_stage=None,
-            request_summary=request_summary,
-            timing={
-                "start": start_time.isoformat(),
-                "end": end_time.isoformat(),
-                "duration_ms": duration_ms,
-            },
-            result_count=result_count,
-            warnings=warnings,
-            diagnostics=diagnostics or {},
-        )
-
-        try:
-            self.trace_sink.emit(trace)
-        except Exception as e:
-            logger.warning(
-                "Failed to emit success trace trace_id=%s error=%s",
-                trace_id,
-                str(e),
-                exc_info=True,
-            )
-
-    def _emit_failed_trace(
-        self,
-        trace_id: str,
-        correlation_id: str | None,
-        request_summary: dict,
-        start_time,
-        start_perf: float,
-        result_count: int,
-        warnings: list[RetrievalWarning],
-        failure_stage: FailureStage,
-    ) -> None:
-        """Emit a failed retrieval trace."""
-        end_time = self.clock.now()
-        duration_ms = round((perf_counter() - start_perf) * 1000, 2)
-
-        trace = RetrievalTrace(
-            trace_id=trace_id,
-            correlation_id=correlation_id,
-            status=TraceStatus.FAILED,
-            failure_stage=failure_stage,
-            request_summary=request_summary,
-            timing={
-                "start": start_time.isoformat(),
-                "end": end_time.isoformat(),
-                "duration_ms": duration_ms,
-            },
-            result_count=result_count,
-            warnings=warnings,
-        )
-
-        try:
-            self.trace_sink.emit(trace)
-        except Exception as e:
-            logger.warning(
-                "Failed to emit failure trace trace_id=%s failure_stage=%s error=%s",
-                trace_id,
-                failure_stage.value,
-                str(e),
-                exc_info=True,
-            )
