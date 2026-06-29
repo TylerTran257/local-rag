@@ -11,6 +11,7 @@ from app.api.routes import (
     profiles_router,
     retrieve_router,
 )
+from app.answer.use_case import AnswerUseCase
 from app.auth import ApiKeyRegistry
 from app.composition import MetadataAwareRuntime, build_metadata_aware_runtime
 from app.core.logging import configure_logging
@@ -66,11 +67,20 @@ def create_app(
         api_keys_file=settings.api_keys_file
     )
 
+    # Answer use case: built from the runtime's retrieve use case and the
+    # resolved generation service so the generation_service override is honored
+    # and REST shares the same answer orchestration as MCP.
+    answer_use_case = AnswerUseCase(
+        retrieve_use_case=runtime.retrieve_use_case,
+        generation_service=resolved_generation_service,
+    )
+
     # Wire app state
     app.state.retrieve_use_case = runtime.retrieve_use_case
     app.state.ingest_use_case = runtime.ingest_use_case
     app.state.delete_use_case = runtime.delete_use_case
     app.state.generation_service = resolved_generation_service
+    app.state.answer_use_case = answer_use_case
     app.state.profile_store = runtime.profile_store
     app.state.api_key_registry = resolved_registry
 

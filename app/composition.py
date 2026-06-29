@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.answer.use_case import AnswerUseCase
 from app.delete.use_case import DeleteUseCase
 from app.ingest.use_case import IngestUseCase
 from app.profiles.store import ProfileStore
@@ -29,6 +30,7 @@ from app.retrieval.contracts import (
 from app.retrieval.metadata_gateway import MetadataAwareRetrievalGateway
 from app.retrieval.use_case import RetrieveUseCase
 from app.services.embedding_service import EmbeddingService
+from app.services.generation_service import GenerationService
 from app.services.lexical_search_service import LexicalSearchService
 from app.services.vector_store_service import VectorStoreService
 from app.settings import settings
@@ -55,6 +57,7 @@ class MetadataAwareRuntime:
     # tests can construct a runtime with mocked use cases.
     profile_store: ProfileStore | None = None
     delete_use_case: DeleteUseCase | None = None
+    answer_use_case: AnswerUseCase | None = None
 
 
 def build_metadata_aware_runtime(
@@ -66,6 +69,7 @@ def build_metadata_aware_runtime(
     vector_store_service: VectorStoreService | None = None,
     lexical_search_service: LexicalSearchService | None = None,
     profile_store: ProfileStore | None = None,
+    generation_service: GenerationService | None = None,
     # Retrieval core overrides -- primarily useful for tests.
     scope_policy: ScopePolicy | None = None,
     clock: Clock | None = None,
@@ -129,10 +133,20 @@ def build_metadata_aware_runtime(
         profile_store=resolved_profile_store,
     )
 
+    # --- Answer use case ---
+    # Generation is wired here (default OpenAI-compatible client) so the answer
+    # orchestration is shared by REST and MCP, like retrieve and ingest.
+    resolved_generation = generation_service or GenerationService()
+    answer_use_case = AnswerUseCase(
+        retrieve_use_case=retrieve_use_case,
+        generation_service=resolved_generation,
+    )
+
     return MetadataAwareRuntime(
         retrieve_use_case=retrieve_use_case,
         ingest_use_case=ingest_use_case,
         gateway=gateway,
         profile_store=resolved_profile_store,
         delete_use_case=delete_use_case,
+        answer_use_case=answer_use_case,
     )

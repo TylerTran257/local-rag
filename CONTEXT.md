@@ -27,6 +27,10 @@ optionally generate grounded answers). It is exposed over REST and MCP.
   dense/lexical/hybrid retrieval against the backends.
 - **Trace id** — per-request correlation id, returned in the `X-Trace-Id`
   header and in every error envelope.
+- **Grounded answer** — an answer generated only from retrieved in-scope
+  chunks. When retrieval returns no chunks, the service returns a fixed
+  *no-grounded-answer* response (the same fallback text across REST and MCP,
+  sync and streaming) and does not call generation.
 
 ## Invariants
 

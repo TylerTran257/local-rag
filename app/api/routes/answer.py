@@ -6,9 +6,10 @@ from typing import Any, AsyncIterator
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
+from app.answer.contracts import AnswerRequest as AnswerUseCaseRequest
 from app.api.schemas import AnswerRequest, AnswerResponse, ChunkResult, StreamEvent
 from app.auth import Principal, enforce_scope, require_principal
-from app.retrieval import RetrievalScope, RetrieveRequest
+from app.retrieval import RetrievalScope
 from app.services.generation_service import GenerationServiceError
 
 logger = logging.getLogger(__name__)
@@ -38,44 +39,21 @@ def _extract_domain_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _build_retrieval_scope(body: AnswerRequest) -> RetrievalScope:
-    """Build RetrievalScope from request body."""
-    return RetrievalScope(
-        service_name=body.service_name,
-        tenant_id=body.tenant_id,
-        collections=body.collections,
-        filters=body.filters,
-    )
-
-
-def _execute_retrieval(request: Request, body: AnswerRequest):
-    """Execute retrieval; domain errors propagate to exception handlers."""
-    scope = _build_retrieval_scope(body)
-    retrieve_request = RetrieveRequest(
+def _to_use_case_request(body: AnswerRequest) -> AnswerUseCaseRequest:
+    return AnswerUseCaseRequest(
         query=body.query,
         retrieval_mode=body.mode,
         limit=body.limit,
-        scope=scope,
+        scope=RetrievalScope(
+            service_name=body.service_name,
+            tenant_id=body.tenant_id,
+            collections=body.collections,
+            filters=body.filters,
+        ),
     )
-    return request.app.state.retrieve_use_case.execute(retrieve_request)
 
 
-def _map_chunks_to_sources(chunks):
-    """Map RetrievedChunk to source format expected by GenerationService."""
-    return [
-        {
-            "document_id": chunk.metadata.get("document_id", "unknown"),
-            "original_filename": chunk.metadata.get("source_label", "unknown"),
-            "chunk_index": chunk.metadata.get("chunk_index", 0),
-            "score": chunk.score,
-            "text": chunk.content,
-        }
-        for chunk in chunks
-    ]
-
-
-def _map_chunks_to_chunk_results(chunks):
-    """Map RetrievedChunk to ChunkResult schema."""
+def _to_chunk_results(chunks) -> list[ChunkResult]:
     return [
         ChunkResult(
             text=chunk.content,
@@ -109,31 +87,12 @@ def answer(
         collections=body.collections,
     )
 
-    # Retrieve scoped chunks
-    result = _execute_retrieval(request, body)
-
-    # Handle empty retrieval
-    if len(result.chunks) == 0:
-        return AnswerResponse(
-            answer="I couldn't find any relevant information to answer your question.",
-            sources=[],
-            trace_id=result.trace_id or "unknown",
-        )
-
-    # Map chunks to generation service format
-    sources = _map_chunks_to_sources(result.chunks)
-
-    # Generate answer (GenerationServiceError propagates to the handler).
-    answer_text = request.app.state.generation_service.answer_question(
-        body.query, sources
-    )
-
-    # Map chunks to response format
-    source_chunks = _map_chunks_to_chunk_results(result.chunks)
+    # Domain/generation errors propagate to the registered exception handlers.
+    result = request.app.state.answer_use_case.execute(_to_use_case_request(body))
 
     return AnswerResponse(
-        answer=answer_text,
-        sources=source_chunks,
+        answer=result.answer,
+        sources=_to_chunk_results(result.sources),
         trace_id=result.trace_id or "unknown",
     )
 
@@ -156,53 +115,19 @@ async def answer_stream(
         collections=body.collections,
     )
 
-    # Retrieve scoped chunks
-    result = _execute_retrieval(request, body)
+    # Retrieval runs eagerly inside stream(); a RetrievalError here propagates
+    # to the exception handlers before any SSE bytes are sent.
+    answer_stream = await request.app.state.answer_use_case.stream(
+        _to_use_case_request(body)
+    )
 
-    # Handle empty retrieval
-    if len(result.chunks) == 0:
-        async def empty_stream():
-            event = StreamEvent(
-                event="content",
-                data="I couldn't find any relevant information to answer your question.",
-                done=False,
-            )
-            yield f"data: {event.model_dump_json()}\n\n"
-
-            done_event = StreamEvent(
-                event="done",
-                data="",
-                done=True,
-            )
-            yield f"data: {done_event.model_dump_json()}\n\n"
-
-        return StreamingResponse(
-            empty_stream(),
-            media_type="text/event-stream",
-        )
-
-    # Map chunks to generation service format
-    sources = _map_chunks_to_sources(result.chunks)
-
-    # Stream answer generation
     async def event_generator() -> AsyncIterator[str]:
         try:
-            async for token in request.app.state.generation_service.stream_answer_question(
-                body.query, sources
-            ):
-                event = StreamEvent(
-                    event="content",
-                    data=token,
-                    done=False,
-                )
+            async for token in answer_stream.tokens:
+                event = StreamEvent(event="content", data=token, done=False)
                 yield f"data: {event.model_dump_json()}\n\n"
 
-            # Emit completion signal
-            done_event = StreamEvent(
-                event="done",
-                data="",
-                done=True,
-            )
+            done_event = StreamEvent(event="done", data="", done=True)
             yield f"data: {done_event.model_dump_json()}\n\n"
 
         except GenerationServiceError as exc:

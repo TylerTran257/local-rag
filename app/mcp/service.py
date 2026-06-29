@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.answer.contracts import AnswerRequest
+from app.answer.use_case import AnswerUseCase
 from app.auth import ApiKeyRegistry, Principal, enforce_scope
 from app.auth.errors import AuthenticationError
 from app.composition import MetadataAwareRuntime, build_metadata_aware_runtime
@@ -75,8 +77,14 @@ class McpService:
         registry: ApiKeyRegistry,
     ) -> None:
         self._runtime = runtime
-        self._generation = generation_service
         self._registry = registry
+        # Build the answer use case from the runtime's retrieve use case and the
+        # provided generation service so MCP shares the same answer orchestration
+        # (and no-grounded-answer contract) as REST.
+        self._answer_use_case = AnswerUseCase(
+            retrieve_use_case=runtime.retrieve_use_case,
+            generation_service=generation_service,
+        )
 
     @classmethod
     def from_config(cls, *, api_keys_file=None) -> "McpService":
@@ -155,37 +163,29 @@ class McpService:
         limit: int = 5,
         mode: str = "hybrid",
     ) -> dict[str, Any]:
-        retrieved = self.retrieve(
+        enforce_scope(
             principal,
-            query=query,
             service_name=service_name,
             tenant_id=tenant_id,
             collections=collections,
-            filters=filters,
-            limit=limit,
-            mode=mode,
         )
-        if not retrieved["chunks"]:
-            return {
-                "answer": "I couldn't find any relevant information to answer your question.",
-                "sources": [],
-                "trace_id": retrieved["trace_id"],
-            }
-        sources = [
-            {
-                "document_id": c.get("chunk_id", "unknown"),
-                "original_filename": c["source_label"],
-                "chunk_index": 0,
-                "score": c["score"],
-                "text": c["text"],
-            }
-            for c in retrieved["chunks"]
-        ]
-        answer_text = self._generation.answer_question(query, sources)
+        result = self._answer_use_case.execute(
+            AnswerRequest(
+                query=query,
+                retrieval_mode=RetrievalMode(mode),
+                limit=limit,
+                scope=RetrievalScope(
+                    service_name=service_name,
+                    tenant_id=tenant_id,
+                    collections=collections,
+                    filters=filters or {},
+                ),
+            )
+        )
         return {
-            "answer": answer_text,
-            "sources": retrieved["chunks"],
-            "trace_id": retrieved["trace_id"],
+            "answer": result.answer,
+            "sources": [_chunk_to_dict(c) for c in result.sources],
+            "trace_id": result.trace_id or "unknown",
         }
 
     def ingest_document(
